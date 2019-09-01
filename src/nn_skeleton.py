@@ -88,10 +88,10 @@ class ModelSkeleton:
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 1], name='box_mask')
     # Tensor used to represent bounding box deltas.
     self.ph_box_delta_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='box_delta_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 8], name='box_delta_input')
     # Tensor used to represent bounding box coordinates.
     self.ph_box_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='box_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 8], name='box_input')
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
@@ -108,8 +108,8 @@ class ModelSkeleton:
                 tf.float32, tf.float32],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
-                [mc.ANCHORS, 4],
-                [mc.ANCHORS, 4],
+                [mc.ANCHORS, 8],
+                [mc.ANCHORS, 8],
                 [mc.ANCHORS, mc.CLASSES]],
     )
 
@@ -148,6 +148,7 @@ class ModelSkeleton:
 
       # probability
       num_class_probs = mc.ANCHOR_PER_GRID*mc.CLASSES
+      print("NUM class probs",num_class_probs, mc.ANCHORS, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES])
       self.pred_class_probs = tf.reshape(
           tf.nn.softmax(
               tf.reshape(
@@ -172,7 +173,7 @@ class ModelSkeleton:
       # bbox_delta
       self.pred_box_delta = tf.reshape(
           preds[:, :, :, num_confidence_scores:],
-          [mc.BATCH_SIZE, mc.ANCHORS, 4],
+          [mc.BATCH_SIZE, mc.ANCHORS, 8],
           name='bbox_delta'
       )
 
@@ -181,7 +182,7 @@ class ModelSkeleton:
 
     with tf.variable_scope('bbox') as scope:
       with tf.variable_scope('stretching'):
-        delta_x, delta_y, delta_w, delta_h = tf.unstack(
+        delta_x1, delta_y1, delta_w1, delta_h1, delta_x2, delta_y2, delta_w2, delta_h2 = tf.unstack(
             self.pred_box_delta, axis=2)
 
         anchor_x = mc.ANCHOR_BOX[:, 0]
@@ -189,81 +190,133 @@ class ModelSkeleton:
         anchor_w = mc.ANCHOR_BOX[:, 2]
         anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        box_center_x = tf.identity(
-            anchor_x + delta_x * anchor_w, name='bbox_cx')
-        box_center_y = tf.identity(
-            anchor_y + delta_y * anchor_h, name='bbox_cy')
-        box_width = tf.identity(
-            anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
-            name='bbox_width')
-        box_height = tf.identity(
-            anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
-            name='bbox_height')
+        box_center_x1 = tf.identity(
+            anchor_x + delta_x1 * anchor_w, name='bbox_cx1')
+        box_center_y1 = tf.identity(
+            anchor_y + delta_y1 * anchor_h, name='bbox_cy1')
+        box_width1 = tf.identity(
+            anchor_w * util.safe_exp(delta_w1, mc.EXP_THRESH),
+            name='bbox_width1')
+        box_height1= tf.identity(
+            anchor_h * util.safe_exp(delta_h1, mc.EXP_THRESH),
+            name='bbox_height1')
 
-        self._activation_summary(delta_x, 'delta_x')
-        self._activation_summary(delta_y, 'delta_y')
-        self._activation_summary(delta_w, 'delta_w')
-        self._activation_summary(delta_h, 'delta_h')
+        box_center_x2 = tf.identity(
+            anchor_x + delta_x2 * anchor_w, name='bbox_cx2')
+        box_center_y2 = tf.identity(
+            anchor_y + delta_y2 * anchor_h, name='bbox_cy2')
+        box_width2 = tf.identity(
+            anchor_w * util.safe_exp(delta_w2, mc.EXP_THRESH),
+            name='bbox_width2')
+        box_height2= tf.identity(
+            anchor_h * util.safe_exp(delta_h2, mc.EXP_THRESH),
+            name='bbox_height2')
 
-        self._activation_summary(box_center_x, 'bbox_cx')
-        self._activation_summary(box_center_y, 'bbox_cy')
-        self._activation_summary(box_width, 'bbox_width')
-        self._activation_summary(box_height, 'bbox_height')
+        self._activation_summary(delta_x1, 'delta_x1')
+        self._activation_summary(delta_y1, 'delta_y1')
+        self._activation_summary(delta_w1, 'delta_w1')
+        self._activation_summary(delta_h1, 'delta_h1')
+        self._activation_summary(delta_x2, 'delta_x2')
+        self._activation_summary(delta_y2, 'delta_y2')
+        self._activation_summary(delta_w2, 'delta_w2')
+        self._activation_summary(delta_h2, 'delta_h2')
+
+        self._activation_summary(box_center_x1, 'bbox_cx1')
+        self._activation_summary(box_center_y1, 'bbox_cy1')
+        self._activation_summary(box_width1, 'bbox_width1')
+        self._activation_summary(box_height1, 'bbox_height1')
+        self._activation_summary(box_center_x2, 'bbox_cx2')
+        self._activation_summary(box_center_y2, 'bbox_cy2')
+        self._activation_summary(box_width2, 'bbox_width2')
+        self._activation_summary(box_height2, 'bbox_height2')
 
       with tf.variable_scope('trimming'):
-        xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
-            [box_center_x, box_center_y, box_width, box_height])
+        xmins1, ymins1, xmaxs1, ymaxs1, xmins2, ymins2, xmaxs2, ymaxs2 = util.bbox_transform2(
+            [box_center_x1, box_center_y1, box_width1, box_height1, box_center_x2, box_center_y2, box_width2, box_height2])
 
         # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
         # pixels. Same for y.
-        xmins = tf.minimum(
-            tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
-        self._activation_summary(xmins, 'box_xmin')
+        xmins1 = tf.minimum(
+            tf.maximum(0.0, xmins1), mc.IMAGE_WIDTH-1.0, name='bbox_xmin1')
+        self._activation_summary(xmins1, 'box_xmin1')
 
-        ymins = tf.minimum(
-            tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
-        self._activation_summary(ymins, 'box_ymin')
+        ymins1 = tf.minimum(
+            tf.maximum(0.0, ymins1), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin1')
+        self._activation_summary(ymins1, 'box_ymin1')
 
-        xmaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
-        self._activation_summary(xmaxs, 'box_xmax')
+        xmaxs1 = tf.maximum(
+            tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs1), 0.0, name='bbox_xmax1')
+        self._activation_summary(xmaxs1, 'box_xmax1')
 
-        ymaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
-        self._activation_summary(ymaxs, 'box_ymax')
+        ymaxs1 = tf.maximum(
+            tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs1), 0.0, name='bbox_ymax1')
+        self._activation_summary(ymaxs1, 'box_ymax1')
+
+        xmins2 = tf.minimum(
+            tf.maximum(0.0, xmins2), mc.IMAGE_WIDTH-1.0, name='bbox_xmin2')
+        self._activation_summary(xmins2, 'box_xmin2')
+
+        ymins2 = tf.minimum(
+            tf.maximum(0.0, ymins2), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin2')
+        self._activation_summary(ymins2, 'box_ymin2')
+
+        xmaxs2 = tf.maximum(
+            tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs2), 0.0, name='bbox_xmax2')
+        self._activation_summary(xmaxs2, 'box_xmax2')
+
+        ymaxs2 = tf.maximum(
+            tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs2), 0.0, name='bbox_ymax2')
+        self._activation_summary(ymaxs2, 'box_ymax2')
 
         self.det_boxes = tf.transpose(
-            tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+            tf.stack(util.bbox_transform_inv2([xmins1, ymins1, xmaxs1, ymaxs1, xmins2, ymins2, xmaxs2, ymaxs2])),
             (1, 2, 0), name='bbox'
         )
 
     with tf.variable_scope('IOU'):
       def _tensor_iou(box1, box2):
         with tf.variable_scope('intersection'):
-          xmin = tf.maximum(box1[0], box2[0], name='xmin')
-          ymin = tf.maximum(box1[1], box2[1], name='ymin')
-          xmax = tf.minimum(box1[2], box2[2], name='xmax')
-          ymax = tf.minimum(box1[3], box2[3], name='ymax')
+          xmin1 = tf.maximum(box1[0], box2[0], name='xmin1')
+          ymin1 = tf.maximum(box1[1], box2[1], name='ymin1')
+          xmax1 = tf.minimum(box1[2], box2[2], name='xmax1')
+          ymax1 = tf.minimum(box1[3], box2[3], name='ymax1')
+          
+          xmin2 = tf.maximum(box1[4], box2[4], name='xmin2')
+          ymin2 = tf.maximum(box1[5], box2[5], name='ymin2')
+          xmax2 = tf.minimum(box1[6], box2[6], name='xmax2')
+          ymax2 = tf.minimum(box1[7], box2[7], name='ymax2')
 
-          w = tf.maximum(0.0, xmax-xmin, name='inter_w')
-          h = tf.maximum(0.0, ymax-ymin, name='inter_h')
-          intersection = tf.multiply(w, h, name='intersection')
+          w1 = tf.maximum(0.0, xmax1-xmin1, name='inter_w1')
+          h1 = tf.maximum(0.0, ymax1-ymin1, name='inter_h1')
+
+          w2 = tf.maximum(0.0, xmax2-xmin2, name='inter_w2')
+          h2 = tf.maximum(0.0, ymax2-ymin2, name='inter_h2')
+          
+          intersection1 = tf.multiply(w1, h1, name='intersection1')
+          intersection2 = tf.multiply(w2, h2, name='intersection2')
 
         with tf.variable_scope('union'):
-          w1 = tf.subtract(box1[2], box1[0], name='w1')
-          h1 = tf.subtract(box1[3], box1[1], name='h1')
-          w2 = tf.subtract(box2[2], box2[0], name='w2')
-          h2 = tf.subtract(box2[3], box2[1], name='h2')
+          w11 = tf.subtract(box1[2], box1[0], name='w11')
+          h11 = tf.subtract(box1[3], box1[1], name='h11')
+          w12 = tf.subtract(box2[2], box2[0], name='w12')
+          h12 = tf.subtract(box2[3], box2[1], name='h12')
 
-          union = w1*h1 + w2*h2 - intersection
+          union1 = w11*h11 + w12*h12 - intersection1
 
-        return intersection/(union+mc.EPSILON) \
+          w21 = tf.subtract(box1[6], box1[4], name='w21')
+          h21 = tf.subtract(box1[7], box1[5], name='h21')
+          w22 = tf.subtract(box2[6], box2[4], name='w22')
+          h22 = tf.subtract(box2[7], box2[5], name='h22')
+
+          union2 = w21*h21 + w22*h22 - intersection2
+
+        return (0.5*(intersection1/(union1+mc.EPSILON)))+(0.5*(intersection2/(union2+mc.EPSILON))) \
             * tf.reshape(self.input_mask, [mc.BATCH_SIZE, mc.ANCHORS])
 
       self.ious = self.ious.assign(
           _tensor_iou(
-              util.bbox_transform(tf.unstack(self.det_boxes, axis=2)),
-              util.bbox_transform(tf.unstack(self.box_input, axis=2))
+              util.bbox_transform2(tf.unstack(self.det_boxes, axis=2)),
+              util.bbox_transform2(tf.unstack(self.box_input, axis=2))
           )
       )
       self._activation_summary(self.ious, 'conf_score')

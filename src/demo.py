@@ -205,10 +205,14 @@ def image_demo():
         final_class = [final_class[idx] for idx in keep_idx]
 
         # TODO(bichen): move this color dict to configuration file
+        # cls2clr = {
+        #     'car': (255, 191, 0),
+        #     'cyclist': (0, 191, 255),
+        #     'pedestrian':(255, 0, 191)
+        # }
+
         cls2clr = {
-            'car': (255, 191, 0),
-            'cyclist': (0, 191, 255),
-            'pedestrian':(255, 0, 191)
+            'toy': (255, 191, 0),
         }
 
         # Draw boxes

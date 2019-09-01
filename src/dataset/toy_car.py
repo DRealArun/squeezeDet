@@ -1,22 +1,23 @@
 # Author: Bichen Wu (bichen@berkeley.edu) 08/25/2016
 
-"""Image data base class for kitti"""
+"""Image data base class for toy_car"""
 
 import cv2
 import os 
 import numpy as np
 import subprocess
+from PIL import Image
 
 from dataset.imdb import imdb
 from utils.util import bbox_transform_inv, batch_iou
 
-class kitti(imdb):
+class toy_car(imdb):
   def __init__(self, image_set, data_path, mc):
-    imdb.__init__(self, 'kitti_'+image_set, mc)
+    imdb.__init__(self, 'toy_car_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
     self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')
-    self._label_path = os.path.join(self._data_root_path, 'training', 'label_2')
+    self._label_path = os.path.join(self._data_root_path, 'training', 'mask_2')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
 
@@ -24,7 +25,7 @@ class kitti(imdb):
     self._image_idx = self._load_image_set_idx() 
     # a dict of image_idx -> [[cx, cy, w, h, cls_idx]]. x,y,w,h are not divided by
     # the image width and height
-    self._rois = self._load_kitti_annotation()
+    self._rois = self._load_toy_annotation()
 
     ## batch reader ##
     self._perm_idx = None
@@ -32,7 +33,7 @@ class kitti(imdb):
     # TODO(bichen): add a random seed as parameter
     self._shuffle_image_idx()
 
-    self._eval_tool = './src/dataset/kitti-eval/cpp/evaluate_object'
+    self._eval_tool = None
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
@@ -45,56 +46,125 @@ class kitti(imdb):
     return image_idx
 
   def _image_path_at(self, idx):
-    image_path = os.path.join(self._image_path, idx+'.png')
+    image_path = os.path.join(self._image_path, idx+'.jpg')
     assert os.path.exists(image_path), \
         'Image does not exist: {}'.format(image_path)
     return image_path
 
-  def _load_kitti_annotation(self):
-    def _get_obj_level(obj):
-      height = float(obj[7]) - float(obj[5]) + 1
-      truncation = float(obj[1])
-      occlusion = float(obj[2])
-      if height >= 40 and truncation <= 0.15 and occlusion <= 0:
-          return 1
-      elif height >= 25 and truncation <= 0.3 and occlusion <= 1:
-          return 2
-      elif height >= 25 and truncation <= 0.5 and occlusion <= 2:
-          return 3
-      else:
-          return 4
+  def get_bboxes(self, image_mask):
+    rr, cc = np.where(image_mask != 0)
+    xmin = min(cc)
+    ymin = min(rr)
+    xmax = max(cc)
+    ymax = max(rr)
 
+    h = ymax-ymin
+    if h % 2 != 0:
+        h +=1
+    w = xmax-xmin
+    if w % 2 != 0:
+        w +=1
+    cx = xmin + w/2
+    cy = ymin + h/2
+    
+    bboxes = [cx, cy, w, h]
+    
+    h, w = image_mask.shape
+    M = cv2.getRotationMatrix2D((cx,cy),-45,1)
+    dst = cv2.warpAffine(image_mask,M,(w,h))
+    
+    rr, cc = np.where(dst != 0)
+    xmin = min(cc)
+    ymin = min(rr)
+    xmax = max(cc)
+    ymax = max(rr)
+    
+    h = ymax-ymin
+    if h % 2 != 0:
+        h +=1
+    w = xmax-xmin
+    if w % 2 != 0:
+        w +=1
+    cx = xmin + w/2
+    cy = ymin + h/2
+    
+    bboxes.extend([cx, cy, w, h])
+    
+    return bboxes
+
+  # Old working
+
+  # def _load_toy_annotation(self):
+  #   idx2annotation = {}
+  #   for index in self._image_idx:
+  #     bboxes = []
+  #     filename = os.path.join(self._label_path, index+'.png')
+  #     cls = self._class_to_idx['toy']
+  #     mask = np.asarray(Image.open(filename))
+  #     im2, contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+  #     hull = []
+  #     drawing = np.zeros((mask.shape[0], mask.shape[1], 3), np.uint8)
+  #     # calculate points for each contour
+  #     for i in range(len(contours)):
+  #       # creating convex hull object for each contour
+  #       hull.append(cv2.convexHull(contours[i], False))
+  #       color = (255, 255, 255)
+  #       cv2.fillConvexPoly(drawing, hull[i], color)
+  #       gray = cv2.cvtColor(drawing, cv2.COLOR_BGR2GRAY) # convert to grayscale
+  #       ret, rough_mask = cv2.threshold(gray, 125, 255, cv2.THRESH_BINARY)
+  #     rows, cols = np.where(rough_mask != 0) # Use rough mask to calculate the bounding box
+  #     xmin = min(cols)
+  #     ymin = min(rows)
+  #     xmax = max(cols)
+  #     ymax = max(rows)
+  #     assert xmin >= 0.0 and xmin <= xmax, \
+  #         'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
+  #             .format(xmin, xmax, index)
+  #     assert ymin >= 0.0 and ymin <= ymax, \
+  #         'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
+  #             .format(ymin, ymax, index)
+
+  #     x = int(round(xmin + ((xmax-xmin)/2)))
+  #     y = int(round(ymin + ((ymax-ymin)/2)))
+  #     w = xmax - xmin
+  #     h = ymax - ymin
+  #     bboxes.append([x, y, w, h, cls])
+  #     idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
+  #   return idx2annotation
+
+  def _load_toy_annotation(self):
     idx2annotation = {}
     for index in self._image_idx:
-      filename = os.path.join(self._label_path, index+'.txt')
-      with open(filename, 'r') as f:
-        lines = f.readlines()
-      f.close()
       bboxes = []
-      for line in lines:
-        obj = line.strip().split(' ')
-        try:
-          cls = self._class_to_idx[obj[0].lower().strip()]
-        except:
-          continue
+      filename = os.path.join(self._label_path, index+'.png')
+      cls = self._class_to_idx['toy']
+      mask = np.asarray(Image.open(filename))
+      bounding_boxes = self.get_bboxes(mask)
+      cx1, cy1, w1, h1, cx2, cy2, w2, h2 = bounding_boxes
+      xmin = int(cx1 - w1/2)
+      ymin = int(cy1 - h1/2)
+      xmax = int(cx1 + w1/2)
+      ymax = int(cy1 + h1/2)
+      assert xmin >= 0.0 and xmin <= xmax, \
+          'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
+              .format(xmin, xmax, index)
+      assert ymin >= 0.0 and ymin <= ymax, \
+          'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
+              .format(ymin, ymax, index)
 
-        if self.mc.EXCLUDE_HARD_EXAMPLES and _get_obj_level(obj) > 3:
-          continue
-        xmin = float(obj[4])
-        ymin = float(obj[5])
-        xmax = float(obj[6])
-        ymax = float(obj[7])
-        assert xmin >= 0.0 and xmin <= xmax, \
-            'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
-                .format(xmin, xmax, index)
-        assert ymin >= 0.0 and ymin <= ymax, \
-            'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
-                .format(ymin, ymax, index)
-        x, y, w, h = bbox_transform_inv([xmin, ymin, xmax, ymax])
-        bboxes.append([x, y, w, h, cls])
+      xmin = int(cx2 - w2/2)
+      ymin = int(cy2 - h2/2)
+      xmax = int(cx2 + w2/2)
+      ymax = int(cy2 + h2/2)
+      assert xmin >= 0.0 and xmin <= xmax, \
+          'Invalid bounding box 2 x-coord xmin {} or xmax {} at {}.txt' \
+              .format(xmin, xmax, index)
+      assert ymin >= 0.0 and ymin <= ymax, \
+          'Invalid bounding box 2 y-coord ymin {} or ymax {} at {}.txt' \
+              .format(ymin, ymax, index)
 
-      idx2annotation[index] = bboxes
-
+      bboxes.append([cx1, cy1, w1, h1, cx2, cy2, w2, h2, cls])
+      idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
     return idx2annotation
 
   def evaluate_detections(self, eval_dir, global_step, all_boxes):

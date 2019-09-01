@@ -178,6 +178,24 @@ def bbox_transform(bbox):
 
   return out_box
 
+def bbox_transform2(bbox):
+  """convert a bbox of form [cx1, cy1, w1, h1, cx2, cy2, w2, h2] to [xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2]. Works
+  for numpy array or list of tensors.
+  """
+  with tf.variable_scope('bbox_transform2') as scope:
+    cx1, cy1, w1, h1, cx2, cy2, w2, h2 = bbox
+    out_box = [[]]*8
+    out_box[0] = cx1-w1/2
+    out_box[1] = cy1-h1/2
+    out_box[2] = cx1+w1/2
+    out_box[3] = cy1+h1/2
+    out_box[4] = cx2-w2/2
+    out_box[5] = cy2-h2/2
+    out_box[6] = cx2+w2/2
+    out_box[7] = cy2+h2/2
+
+  return out_box
+
 def bbox_transform_inv(bbox):
   """convert a bbox of form [xmin, ymin, xmax, ymax] to [cx, cy, w, h]. Works
   for numpy array or list of tensors.
@@ -192,6 +210,38 @@ def bbox_transform_inv(bbox):
     out_box[1]  = ymin + 0.5*height
     out_box[2]  = width
     out_box[3]  = height
+
+  return out_box
+
+def bbox_transform_inv2(bbox):
+  """convert a bbox of form [xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2] to [cx1, cy1, w1, h1, cx2, cy2, w2, h2]. Works
+  for numpy array or list of tensors.
+  """
+  with tf.variable_scope('bbox_transform_inv2') as scope:
+    xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2 = bbox
+    out_box = [[]]*8
+
+    width1       = xmax1 - xmin1
+    height1      = ymax1 - ymin1
+    if height1 % 2 != 0:
+        height1 +=1
+    if width1 % 2 != 0:
+        width1 +=1
+    out_box[0]  = xmin1 + 0.5*width1 
+    out_box[1]  = ymin1 + 0.5*height1
+    out_box[2]  = width1
+    out_box[3]  = height1
+
+    width2       = xmax2 - xmin2
+    height2      = ymax2 - ymin2
+    if height2 % 2 != 0:
+        height2 +=1
+    if width2 % 2 != 0:
+        width2 +=1
+    out_box[4]  = xmin2 + 0.5*width2 
+    out_box[5]  = ymin2 + 0.5*height2
+    out_box[6]  = width2
+    out_box[7]  = height2
 
   return out_box
 

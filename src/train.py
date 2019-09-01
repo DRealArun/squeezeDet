@@ -18,13 +18,13 @@ import tensorflow as tf
 import threading
 
 from config import *
-from dataset import pascal_voc, kitti
-from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
+from dataset import pascal_voc, kitti, toy_car
+from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform, bbox_transform2
 from nets import *
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('dataset', 'KITTI',
+tf.app.flags.DEFINE_string('dataset', 'TOY',
                            """Currently only support KITTI dataset.""")
 tf.app.flags.DEFINE_string('data_path', '', """Root directory of data""")
 tf.app.flags.DEFINE_string('image_set', 'train',
@@ -55,9 +55,9 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
   for bbox, label in zip(box_list, label_list):
 
     if form == 'center':
-      bbox = bbox_transform(bbox)
+      bbox = bbox_transform2(bbox)
 
-    xmin, ymin, xmax, ymax = [int(b) for b in bbox]
+    xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2 = [int(b) for b in bbox]
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
     if cdict and l in cdict:
@@ -66,10 +66,12 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
       c = color
 
     # draw box
-    cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
+    cv2.rectangle(im, (xmin1, ymin1), (xmax1, ymax1), c, 1)
+    cv2.rectangle(im, (xmin2, ymin2), (xmax2, ymax2), c, 1)
     # draw label
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+    cv2.putText(im, label, (xmin1, ymax1), font, 0.3, c, 1)
+    cv2.putText(im, label, (xmin2, ymax2), font, 0.3, c, 1)
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob):
@@ -101,8 +103,8 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
 
 def train():
   """Train SqueezeDet model"""
-  assert FLAGS.dataset == 'KITTI', \
-      'Currently only support KITTI dataset'
+  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'TOY', \
+      'Currently only support KITTI and TOY dataset'
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
@@ -132,7 +134,9 @@ def train():
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
 
-    imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+    # imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+    imdb = toy_car(FLAGS.image_set, FLAGS.data_path, mc)
+    print("CLASS", imdb._class_to_idx)
 
     # save model size, flops, activations by layers
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
@@ -179,7 +183,7 @@ def train():
                 [i, aidx_per_batch[i][j], label_per_batch[i][j]])
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(4)])
+                [[i, aidx_per_batch[i][j], k] for k in range(8)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -210,10 +214,10 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 8],
               box_delta_values),
           box_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 8],
               box_values),
           labels: sparse_to_dense(
               label_indices,
@@ -232,7 +236,7 @@ def train():
             print ("added to the queue")
         if mc.DEBUG_MODE:
           print ("Finished enqueue")
-      except Exception, e:
+      except Exception as e:
         coord.request_stop(e)
 
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
