@@ -51,46 +51,110 @@ class toy_car(imdb):
         'Image does not exist: {}'.format(image_path)
     return image_path
 
+  # Assume binary mask [image values should be 0 or 255]
   def get_bboxes(self, image_mask):
-    rr, cc = np.where(image_mask != 0)
-    xmin = min(cc)
-    ymin = min(rr)
-    xmax = max(cc)
-    ymax = max(rr)
+      rr, cc = np.where(image_mask != 0)
+      xmin = min(cc)
+      ymin = min(rr)
+      xmax = max(cc)
+      ymax = max(rr)
 
-    h = ymax-ymin
-    if h % 2 != 0:
-        h +=1
-    w = xmax-xmin
-    if w % 2 != 0:
-        w +=1
-    cx = xmin + w/2
-    cy = ymin + h/2
-    
-    bboxes = [cx, cy, w, h]
-    
-    h, w = image_mask.shape
-    M = cv2.getRotationMatrix2D((cx,cy),-45,1)
-    dst = cv2.warpAffine(image_mask,M,(w,h))
-    
-    rr, cc = np.where(dst != 0)
-    xmin = min(cc)
-    ymin = min(rr)
-    xmax = max(cc)
-    ymax = max(rr)
-    
-    h = ymax-ymin
-    if h % 2 != 0:
-        h +=1
-    w = xmax-xmin
-    if w % 2 != 0:
-        w +=1
-    cx = xmin + w/2
-    cy = ymin + h/2
-    
-    bboxes.extend([cx, cy, w, h])
-    
-    return bboxes
+      h = ymax-ymin
+      if h % 2 != 0:
+          h +=1
+      w = xmax-xmin
+      if w % 2 != 0:
+          w +=1
+      cx = xmin + w/2
+      cy = ymin + h/2
+      
+      bboxes = [cx, cy, w, h]
+      
+      h, w = image_mask.shape
+      M = cv2.getRotationMatrix2D((cx,cy),-45,1)
+      dst = cv2.warpAffine(image_mask,M,(w,h))
+      
+      rr, cc = np.where(dst != 0)
+      xmin = min(cc)
+      ymin = min(rr)
+      xmax = max(cc)
+      ymax = max(rr)
+      
+      h = ymax-ymin
+      if h % 2 != 0:
+          h +=1
+      w = xmax-xmin
+      if w % 2 != 0:
+          w +=1
+      cx = xmin + w/2
+      cy = ymin + h/2
+      
+      bboxes.extend([cx, cy, w, h])
+      
+      return bboxes
+
+  def get_intersecting_point(self, vert_hor, eq1, pt1, pt2):
+      pt1_x, pt1_y = pt1
+      pt2_x, pt2_y = pt2
+      m = (pt2_y-pt1_y)/(pt2_x-pt1_x)
+      c = pt2_y - (m*pt2_x)
+      
+      if vert_hor == "vert":
+          x_cor = eq1
+          y_cor = (m*x_cor)+c
+      else:
+          y_cor = eq1
+          x_cor = (y_cor - c)/m
+      
+      return (x_cor, y_cor)
+
+
+  # Post Processing
+  def get_encompassing_mask_new(self, image_mask):
+      bboxe_dest = self.get_bboxes(image_mask)
+      x11 = bboxe_dest[0] - bboxe_dest[2]/2
+      y11 = bboxe_dest[1] - bboxe_dest[3]/2
+      x12 = bboxe_dest[0] + bboxe_dest[2]/2
+      y12 = bboxe_dest[1] + bboxe_dest[3]/2
+      eq1s = [x11, x11, y12, y12, x12, x12, y11, y11]
+      vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
+      x11 = bboxe_dest[4] - bboxe_dest[6]/2
+      y11 = bboxe_dest[5] - bboxe_dest[7]/2
+      x12 = bboxe_dest[4] + bboxe_dest[6]/2
+      y12 = bboxe_dest[5] + bboxe_dest[7]/2
+      corners = np.array([[x11, y11, x11, y12, x12, y12, x12, y11, bboxe_dest[4], bboxe_dest[5]]])
+      corners = corners.reshape(-1,2)
+      corners = np.hstack((corners, np.ones((corners.shape[0],1), dtype = type(corners[0][0]))))
+      M = cv2.getRotationMatrix2D((bboxe_dest[0], bboxe_dest[1]), 45, 1.0)# Very important to rotate before using the values
+      cos = np.abs(M[0, 0])
+      sin = np.abs(M[0, 1])
+      w = bboxe_dest[6]
+      h = bboxe_dest[7]
+      nW = int((h * sin) + (w * cos))
+      nH = int((h * cos) + (w * sin))
+      calculated = np.dot(M,corners.T).T
+      x11, y11, x12, y12, x13, y13, x14, y14, cnx, cny = calculated.reshape(-1,10)[0]
+      pt1s = [(x14, y14), (x11, y11), (x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14)]
+      pt2s = [(x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14), (x14, y14), (x11, y11)]
+      intersecting_pts = []
+      for eq1, pt1, pt2, vert_hor in zip(eq1s, pt1s, pt2s, vert_or_hors):
+          op_pt = self.get_intersecting_point(vert_hor, eq1, pt1, pt2)
+          intersecting_pts.append(op_pt)
+      point = np.array(intersecting_pts, 'int32')
+      xmin = np.min(point[:,0])
+      ymin = np.min(point[:,1])
+      xmax = np.max(point[:,0])
+      ymax = np.max(point[:,1])
+      w = xmax - xmin
+      if w % 2 != 0:
+          w += 1
+      h = ymax - ymin
+      if h % 2 != 0:
+          h += 1
+      center_x = int(xmin + w/2)
+      center_y = int(ymin + h/2)
+      mask_vector = [center_x, center_y, w, h, point[0][1]-ymin, point[1][1]-ymin, point[2][0]-xmin, point[3][0]-xmin, point[4][1]-ymin, point[5][1]-ymin, point[6][0]-xmin, point[7][0]-xmin]
+      return mask_vector
 
   # Old working
 
@@ -139,12 +203,12 @@ class toy_car(imdb):
       filename = os.path.join(self._label_path, index+'.png')
       cls = self._class_to_idx['toy']
       mask = np.asarray(Image.open(filename))
-      bounding_boxes = self.get_bboxes(mask)
-      cx1, cy1, w1, h1, cx2, cy2, w2, h2 = bounding_boxes
-      xmin = int(cx1 - w1/2)
-      ymin = int(cy1 - h1/2)
-      xmax = int(cx1 + w1/2)
-      ymax = int(cy1 + h1/2)
+      vector = self.get_encompassing_mask_new(mask)
+      cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = vector
+      xmin = int(cx - w/2)
+      ymin = int(cy - h/2)
+      xmax = int(cx + w/2)
+      ymax = int(cy + h/2)
       assert xmin >= 0.0 and xmin <= xmax, \
           'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
               .format(xmin, xmax, index)
@@ -152,18 +216,7 @@ class toy_car(imdb):
           'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
               .format(ymin, ymax, index)
 
-      xmin = int(cx2 - w2/2)
-      ymin = int(cy2 - h2/2)
-      xmax = int(cx2 + w2/2)
-      ymax = int(cy2 + h2/2)
-      assert xmin >= 0.0 and xmin <= xmax, \
-          'Invalid bounding box 2 x-coord xmin {} or xmax {} at {}.txt' \
-              .format(xmin, xmax, index)
-      assert ymin >= 0.0 and ymin <= ymax, \
-          'Invalid bounding box 2 y-coord ymin {} or ymax {} at {}.txt' \
-              .format(ymin, ymax, index)
-
-      bboxes.append([cx1, cy1, w1, h1, cx2, cy2, w2, h2, cls])
+      bboxes.append([cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8, cls])
       idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
     return idx2annotation
 

@@ -69,7 +69,7 @@ def nms(boxes, probs, threshold):
   keep = [True]*len(order)
 
   for i in range(len(order)-1):
-    ovps = batch_iou(boxes[order[i+1:]], boxes[order[i]])
+    ovps = batch_iou(boxes[order[i+1:]][0:4], boxes[order[i]][0:4])
     for j, ov in enumerate(ovps):
       if ov > threshold:
         keep[order[j+i+1]] = False
@@ -169,13 +169,13 @@ def bbox_transform(bbox):
   for numpy array or list of tensors.
   """
   with tf.variable_scope('bbox_transform') as scope:
-    cx, cy, w, h = bbox
-    out_box = [[]]*4
+    cx, cy, w, h = bbox[0:4]
+    out_box = [[]]*12
     out_box[0] = cx-w/2
     out_box[1] = cy-h/2
     out_box[2] = cx+w/2
     out_box[3] = cy+h/2
-
+    out_box[4:12] = bbox[4:12]
   return out_box
 
 def bbox_transform2(bbox):
@@ -201,8 +201,8 @@ def bbox_transform_inv(bbox):
   for numpy array or list of tensors.
   """
   with tf.variable_scope('bbox_transform_inv') as scope:
-    xmin, ymin, xmax, ymax = bbox
-    out_box = [[]]*4
+    out_box = [[]]*12
+    xmin, ymin, xmax, ymax, out_box[4], out_box[5], out_box[6], out_box[7], out_box[8], out_box[9], out_box[10], out_box[11] = bbox
 
     width       = xmax - xmin + 1.0
     height      = ymax - ymin + 1.0
@@ -210,7 +210,6 @@ def bbox_transform_inv(bbox):
     out_box[1]  = ymin + 0.5*height
     out_box[2]  = width
     out_box[3]  = height
-
   return out_box
 
 def bbox_transform_inv2(bbox):

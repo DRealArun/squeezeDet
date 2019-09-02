@@ -96,55 +96,6 @@ class imdb(object):
 
     return images, scales
 
-  def get_intersecting_point(self, vert_hor, eq1, pt1, pt2):
-    pt1_x, pt1_y = pt1
-    pt2_x, pt2_y = pt2
-    m = (pt2_y-pt1_y)/(pt2_x-pt1_x)
-    c = pt2_y - (m*pt2_x)
-    
-    if vert_hor == "vert":
-        x_cor = eq1
-        y_cor = (m*x_cor)+c
-    else:
-        y_cor = eq1
-        x_cor = (y_cor - c)/m
-    
-    return (x_cor, y_cor)
-
-
-  # Post Processing
-  def get_encompassing_mask(self, bboxe_dest):
-      x11 = bboxe_dest[0] - bboxe_dest[2]/2
-      y11 = bboxe_dest[1] - bboxe_dest[3]/2
-      x12 = bboxe_dest[0] + bboxe_dest[2]/2
-      y12 = bboxe_dest[1] + bboxe_dest[3]/2
-      eq1s = [x11, x11, y12, y12, x12, x12, y11, y11]
-      vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
-      x11 = bboxe_dest[4] - bboxe_dest[6]/2
-      y11 = bboxe_dest[5] - bboxe_dest[7]/2
-      x12 = bboxe_dest[4] + bboxe_dest[6]/2
-      y12 = bboxe_dest[5] + bboxe_dest[7]/2
-      corners = np.array([[x11, y11, x11, y12, x12, y12, x12, y11, bboxe_dest[4], bboxe_dest[5]]])
-      corners = corners.reshape(-1,2)
-      corners = np.hstack((corners, np.ones((corners.shape[0],1), dtype = type(corners[0][0]))))
-      M = cv2.getRotationMatrix2D((bboxe_dest[0], bboxe_dest[1]), 45, 1.0)# Very important to rotate before using the values
-      cos = np.abs(M[0, 0])
-      sin = np.abs(M[0, 1])
-      w = bboxe_dest[6]
-      h = bboxe_dest[7]
-      nW = int((h * sin) + (w * cos))
-      nH = int((h * cos) + (w * sin))
-      calculated = np.dot(M,corners.T).T
-      x11, y11, x12, y12, x13, y13, x14, y14, cnx, cny = calculated.reshape(-1,10)[0]
-      pt1s = [(x14, y14), (x11, y11), (x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14)]
-      pt2s = [(x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14), (x14, y14), (x11, y11)]
-      intersecting_pts = []
-      for eq1, pt1, pt2, vert_hor in zip(eq1s, pt1s, pt2s, vert_or_hors):
-          op_pt = self.get_intersecting_point(vert_hor, eq1, pt1, pt2)
-          intersecting_pts.append(op_pt)
-      return intersecting_pts
-
-
   def read_batch(self, shuffle=True):
     """Read a batch of image and bounding box annotations.
     Args:
@@ -194,8 +145,8 @@ class imdb(object):
       orig_h, orig_w, _ = [float(v) for v in im.shape]
 
       # load annotations
-      label_per_batch.append([b[8] for b in self._rois[idx][:]])
-      gt_bbox = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]] for b in self._rois[idx][:]])
+      label_per_batch.append([b[12] for b in self._rois[idx][:]])
+      gt_bbox = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]] for b in self._rois[idx][:]])
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
@@ -203,24 +154,16 @@ class imdb(object):
 
         if mc.DRIFT_X > 0 or mc.DRIFT_Y > 0:
           # Ensures that gt boundibg box is not cutted out of the image
-          max_drift_x_1 = min(gt_bbox[:, 0] - gt_bbox[:, 2]/2.0+1)
-          max_drift_y_1 = min(gt_bbox[:, 1] - gt_bbox[:, 3]/2.0+1)
-          assert max_drift_x_1 >= 0 and max_drift_y_1 >= 0, 'bbox 1 out of image'
+          max_drift_x = min(gt_bbox[:, 0] - gt_bbox[:, 2]/2.0+1)
+          max_drift_y = min(gt_bbox[:, 1] - gt_bbox[:, 3]/2.0+1)
+          assert max_drift_x >= 0 and max_drift_y >= 0, 'bbox out of image'
 
-          max_drift_x_2 = min(gt_bbox[:, 4] - gt_bbox[:, 6]/2.0+1)
-          max_drift_y_2 = min(gt_bbox[:, 5] - gt_bbox[:, 7]/2.0+1)
-          assert max_drift_x_2 >= 0 and max_drift_y_2 >= 0, 'bbox 2 out of image'
+          dy = np.random.randint(-mc.DRIFT_Y, min(mc.DRIFT_Y+1, max_drift_y))
+          dx = np.random.randint(-mc.DRIFT_X, min(mc.DRIFT_X+1, max_drift_x))
 
-          dy = np.random.randint(-mc.DRIFT_Y, min(mc.DRIFT_Y+1, max_drift_y_1))
-          dx = np.random.randint(-mc.DRIFT_X, min(mc.DRIFT_X+1, max_drift_x_1))
-
-          # shift bbox 1
+          # shift bbox
           gt_bbox[:, 0] = gt_bbox[:, 0] - dx
           gt_bbox[:, 1] = gt_bbox[:, 1] - dy
-
-          # shift bbox 2
-          gt_bbox[:, 4] = gt_bbox[:, 4] - dx
-          gt_bbox[:, 5] = gt_bbox[:, 5] - dy
 
           # distort image
           orig_h -= dy
@@ -237,7 +180,6 @@ class imdb(object):
         if np.random.randint(2) > 0.5:
           im = im[:, ::-1, :]
           gt_bbox[:, 0] = orig_w - 1 - gt_bbox[:, 0]
-          gt_bbox[:, 4] = orig_w - 1 - gt_bbox[:, 4]
 
       # scale image
       im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
@@ -246,30 +188,18 @@ class imdb(object):
       # scale annotation
       x_scale = mc.IMAGE_WIDTH/orig_w
       y_scale = mc.IMAGE_HEIGHT/orig_h
-      gt_bbox[:, 0::2] = gt_bbox[:, 0::2]*x_scale
-      gt_bbox[:, 1::2] = gt_bbox[:, 1::2]*y_scale
-      gt_bbox[:, 4::2] = gt_bbox[:, 4::2]*x_scale
-      gt_bbox[:, 5::2] = gt_bbox[:, 5::2]*y_scale
+      gt_bbox[:, 0:4:2] = gt_bbox[:, 0:4:2]*x_scale
+      gt_bbox[:, 1:4:2] = gt_bbox[:, 1:4:2]*y_scale
+      gt_bbox[:, 4:6:1] = gt_bbox[:, 4:6:2]*y_scale
+      gt_bbox[:, 6:8:1] = gt_bbox[:, 6:8:1]*x_scale
+      gt_bbox[:, 8:10:1] = gt_bbox[:, 8:10:1]*y_scale
+      gt_bbox[:, 10:12:1] = gt_bbox[:, 10:12:1]*x_scale
       bbox_per_batch.append(gt_bbox)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
       for i in range(len(gt_bbox)):
-        encompassing_mask = self.get_encompassing_mask(gt_bbox[i])
-        encompassing_mask = np.array(encompassing_mask, 'int32')
-        xmin = np.min(encompassing_mask[:,0])
-        ymin = np.min(encompassing_mask[:,1])
-        xmax = np.max(encompassing_mask[:,0])
-        ymax = np.max(encompassing_mask[:,1])
-        w = xmax - xmin
-        if w % 2 != 0:
-          w += 1
-        h = ymax - ymin
-        if h % 2 != 0:
-          h += 1
-        center_x = int(xmin + w/2)
-        center_y = int(ymin + h/2)
-        encompassing_box = [center_x, center_y, w, h]
+        encompassing_box = gt_bbox[i][0:4]
         overlaps = batch_iou(mc.ANCHOR_BOX, encompassing_box)
 
         aidx = len(mc.ANCHOR_BOX)
@@ -300,16 +230,25 @@ class imdb(object):
               aidx = dist_idx
               break
 
-        box_cx1, box_cy1, box_w1, box_h1, box_cx2, box_cy2, box_w2, box_h2 = gt_bbox[i]
-        delta = [0]*8
-        delta[0] = (box_cx1 - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
-        delta[1] = (box_cy1 - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
-        delta[2] = np.log(box_w1/mc.ANCHOR_BOX[aidx][2])
-        delta[3] = np.log(box_h1/mc.ANCHOR_BOX[aidx][3])
-        delta[4] = (box_cx2 - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
-        delta[5] = (box_cy2 - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
-        delta[6] = np.log(box_w2/mc.ANCHOR_BOX[aidx][2])
-        delta[7] = np.log(box_h2/mc.ANCHOR_BOX[aidx][3])
+        box_cx, box_cy, box_w, box_h, of1, of2, of3, of4, of5, of6, of7, of8 = gt_bbox[i]
+        delta = [0]*12
+        delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
+        delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
+        delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
+        delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
+
+        delta[4] = np.log(of1/mc.ANCHOR_BOX[aidx][3])
+        delta[5] = np.log(of2/mc.ANCHOR_BOX[aidx][3])
+
+        delta[6] = np.log(of3/mc.ANCHOR_BOX[aidx][2])
+        delta[7] = np.log(of4/mc.ANCHOR_BOX[aidx][2])
+        
+        delta[8] = np.log(of5/mc.ANCHOR_BOX[aidx][3])
+        delta[9] = np.log(of6/mc.ANCHOR_BOX[aidx][3])
+        
+        delta[10] = np.log(of7/mc.ANCHOR_BOX[aidx][2])
+        delta[11] = np.log(of8/mc.ANCHOR_BOX[aidx][2])
+        
 
         aidx_per_image.append(aidx)
         delta_per_image.append(delta)
