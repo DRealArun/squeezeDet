@@ -53,45 +53,56 @@ class toy_car(imdb):
 
   # Assume binary mask [image values should be 0 or 255]
   def get_bboxes(self, image_mask):
-      rr, cc = np.where(image_mask != 0)
-      xmin = min(cc)
-      ymin = min(rr)
-      xmax = max(cc)
-      ymax = max(rr)
+    rr, cc = np.where(image_mask != 0)
+    xmin = min(cc)
+    ymin = min(rr)
+    xmax = max(cc)
+    ymax = max(rr)
 
-      h = ymax-ymin
-      if h % 2 != 0:
-          h +=1
-      w = xmax-xmin
-      if w % 2 != 0:
-          w +=1
-      cx = xmin + w/2
-      cy = ymin + h/2
-      
-      bboxes = [cx, cy, w, h]
-      
-      h, w = image_mask.shape
-      M = cv2.getRotationMatrix2D((cx,cy),-45,1)
-      dst = cv2.warpAffine(image_mask,M,(w,h))
-      
-      rr, cc = np.where(dst != 0)
-      xmin = min(cc)
-      ymin = min(rr)
-      xmax = max(cc)
-      ymax = max(rr)
-      
-      h = ymax-ymin
-      if h % 2 != 0:
-          h +=1
-      w = xmax-xmin
-      if w % 2 != 0:
-          w +=1
-      cx = xmin + w/2
-      cy = ymin + h/2
-      
-      bboxes.extend([cx, cy, w, h])
-      
-      return bboxes
+    h = ymax-ymin
+    if h % 2 != 0:
+        h +=1
+    w = xmax-xmin
+    if w % 2 != 0:
+        w +=1
+    cx = xmin + w/2
+    cy = ymin + h/2
+    
+    bboxes = [cx, cy, w, h]
+    
+    h, w = image_mask.shape
+    M = cv2.getRotationMatrix2D((cx,cy),-45,1)
+    cos = np.abs(M[0, 0])
+    sin = np.abs(M[0, 1])
+ 
+    # compute the new bounding dimensions of the image
+    nW = int((h * sin) + (w * cos))
+    nH = int((h * cos) + (w * sin))
+ 
+    # adjust the rotation matrix to take into account translation
+#     M[0, 2] += (nW / 2) - cx
+#     M[1, 2] += (nH / 2) - cy
+ 
+    # perform the actual rotation and return the image
+    dst = cv2.warpAffine(image_mask, M, (nW, nH))
+    rr, cc = np.where(dst != 0)
+    xmin = min(cc)
+    ymin = min(rr)
+    xmax = max(cc)
+    ymax = max(rr)
+    
+    h = ymax-ymin
+    if h % 2 != 0:
+        h +=1
+    w = xmax-xmin
+    if w % 2 != 0:
+        w +=1
+    cx = xmin + w/2
+    cy = ymin + h/2
+    
+    bboxes.extend([cx, cy, w, h])
+    
+    return bboxes
 
   def get_intersecting_point(self, vert_hor, eq1, pt1, pt2):
       pt1_x, pt1_y = pt1

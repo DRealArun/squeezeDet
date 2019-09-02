@@ -147,7 +147,6 @@ class imdb(object):
       # load annotations
       label_per_batch.append([b[12] for b in self._rois[idx][:]])
       gt_bbox = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]] for b in self._rois[idx][:]])
-
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
             'mc.DRIFT_X and mc.DRIFT_Y must be >= 0'
@@ -176,10 +175,26 @@ class imdb(object):
           distorted_im[dist_y:, dist_x:, :] = im[orig_y:, orig_x:, :]
           im = distorted_im
 
-        # Flip image with 50% probability
+        # # Flip image with 50% probability
         if np.random.randint(2) > 0.5:
           im = im[:, ::-1, :]
           gt_bbox[:, 0] = orig_w - 1 - gt_bbox[:, 0]
+
+          temp = gt_bbox[:, 4]
+          gt_bbox[:, 4] = gt_bbox[:, 9]
+          gt_bbox[:, 9] = temp
+
+          temp = gt_bbox[:, 5]
+          gt_bbox[:, 5] = gt_bbox[:, 8]
+          gt_bbox[:, 8] = temp
+          
+          temp = gt_bbox[:, 2] - 1 - gt_bbox[:, 6]
+          gt_bbox[:, 6] = gt_bbox[:, 2] - 1 - gt_bbox[:, 7]
+          gt_bbox[:, 7] = temp
+
+          temp = gt_bbox[:, 2] - 1 - gt_bbox[:, 10] 
+          gt_bbox[:, 10] = gt_bbox[:, 2] - 1 - gt_bbox[:, 11]
+          gt_bbox[:, 11] = temp
 
       # scale image
       im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
@@ -188,12 +203,12 @@ class imdb(object):
       # scale annotation
       x_scale = mc.IMAGE_WIDTH/orig_w
       y_scale = mc.IMAGE_HEIGHT/orig_h
-      gt_bbox[:, 0:4:2] = gt_bbox[:, 0:4:2]*x_scale
-      gt_bbox[:, 1:4:2] = gt_bbox[:, 1:4:2]*y_scale
-      gt_bbox[:, 4:6:1] = gt_bbox[:, 4:6:2]*y_scale
-      gt_bbox[:, 6:8:1] = gt_bbox[:, 6:8:1]*x_scale
-      gt_bbox[:, 8:10:1] = gt_bbox[:, 8:10:1]*y_scale
-      gt_bbox[:, 10:12:1] = gt_bbox[:, 10:12:1]*x_scale
+      gt_bbox[:, 0:4:2] = (np.round(gt_bbox[:, 0:4:2]*x_scale)).astype(np.int)
+      gt_bbox[:, 1:4:2] = (np.round(gt_bbox[:, 1:4:2]*y_scale)).astype(np.int)
+      gt_bbox[:, 4:6:1] = (np.round(gt_bbox[:, 4:6:1]*y_scale)).astype(np.int)
+      gt_bbox[:, 6:8:1] = (np.round(gt_bbox[:, 6:8:1]*x_scale)).astype(np.int)
+      gt_bbox[:, 8:10:1] = (np.round(gt_bbox[:, 8:10:1]*y_scale)).astype(np.int)
+      gt_bbox[:, 10:12:1] =(np.round(gt_bbox[:, 10:12:1]*x_scale)).astype(np.int)
       bbox_per_batch.append(gt_bbox)
 
       aidx_per_image, delta_per_image = [], []

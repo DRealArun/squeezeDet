@@ -59,7 +59,7 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
     xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
     of1, of2, of3, of4, of5, of6, of7, of8 = [int(bbox[o]) for o in range(len(bbox)) if o >= 4]
 
-    points = [(xmin, of1+ymin), (xmin,of2+ymin), (of3+xmin, ymax), (of4+xmin, ymax), (xmax, of5+ymin), (xmax, of6+ymin), (of7+xmin, ymin), (of8+xmin, ymin)]
+    points = [(xmin, of1+ymin), (xmin, of2+ymin), (of3+xmin, ymax), (of4+xmin, ymax), (xmax, of5+ymin), (xmax, of6+ymin), (of7+xmin, ymin), (of8+xmin, ymin)]
     points = np.array(points, 'int32')
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
