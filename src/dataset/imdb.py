@@ -247,22 +247,23 @@ class imdb(object):
 
         box_cx, box_cy, box_w, box_h, of1, of2, of3, of4, of5, of6, of7, of8 = gt_bbox[i]
         delta = [0]*12
+        EPSILON = 1e-8
         delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
         delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
         delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
         delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
-        delta[4] = np.log(of1/mc.ANCHOR_BOX[aidx][3])
-        delta[5] = np.log(of2/mc.ANCHOR_BOX[aidx][3])
+        delta[4] = np.log((of1 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+        delta[5] = np.log((of2 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
 
-        delta[6] = np.log(of3/mc.ANCHOR_BOX[aidx][2])
-        delta[7] = np.log(of4/mc.ANCHOR_BOX[aidx][2])
+        delta[6] = np.log((of3 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
+        delta[7] = np.log((of4 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
         
-        delta[8] = np.log(of5/mc.ANCHOR_BOX[aidx][3])
-        delta[9] = np.log(of6/mc.ANCHOR_BOX[aidx][3])
+        delta[8] = np.log((of5 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+        delta[9] = np.log((of6 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
         
-        delta[10] = np.log(of7/mc.ANCHOR_BOX[aidx][2])
-        delta[11] = np.log(of8/mc.ANCHOR_BOX[aidx][2])
+        delta[10] = np.log((of7 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
+        delta[11] = np.log((of8 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
         
 
         aidx_per_image.append(aidx)

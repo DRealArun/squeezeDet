@@ -8,7 +8,7 @@ from .config import base_model_config
 
 def kitti_squeezeDetPlus_config():
   """Specify the parameters to tune below."""
-  mc                       = base_model_config('TOY')
+  mc                       = base_model_config('KITTI_INSTANCE')
 
   mc.IMAGE_WIDTH           = 1248
   mc.IMAGE_HEIGHT          = 384

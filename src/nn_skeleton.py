@@ -200,30 +200,30 @@ class ModelSkeleton:
         box_height= tf.identity(
             anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
             name='bbox_height')
-
+        EPSILON = 1e-8
         box_of1= tf.identity(
-            anchor_h * util.safe_exp(delta_of1, mc.EXP_THRESH),
+            (anchor_h * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
             name='bbox_of1')
         box_of2= tf.identity(
-            anchor_h * util.safe_exp(delta_of2, mc.EXP_THRESH),
+            (anchor_h * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
             name='bbox_of2')
         box_of3= tf.identity(
-            anchor_w * util.safe_exp(delta_of3, mc.EXP_THRESH),
+            (anchor_w * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
             name='bbox_of3')
         box_of4= tf.identity(
-            anchor_w * util.safe_exp(delta_of4, mc.EXP_THRESH),
+            (anchor_w * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
             name='bbox_of4')
         box_of5= tf.identity(
-            anchor_h * util.safe_exp(delta_of5, mc.EXP_THRESH),
+            (anchor_h * util.safe_exp(delta_of5, mc.EXP_THRESH))-EPSILON,
             name='bbox_of5')
         box_of6= tf.identity(
-            anchor_h * util.safe_exp(delta_of6, mc.EXP_THRESH),
+            (anchor_h * util.safe_exp(delta_of6, mc.EXP_THRESH))-EPSILON,
             name='bbox_of6')
         box_of7= tf.identity(
-            anchor_w * util.safe_exp(delta_of7, mc.EXP_THRESH),
+            (anchor_w * util.safe_exp(delta_of7, mc.EXP_THRESH))-EPSILON,
             name='bbox_of7')
         box_of8= tf.identity(
-            anchor_w * util.safe_exp(delta_of8, mc.EXP_THRESH),
+            (anchor_w * util.safe_exp(delta_of8, mc.EXP_THRESH))-EPSILON,
             name='bbox_of8')
 
 

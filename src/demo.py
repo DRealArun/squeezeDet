@@ -98,7 +98,7 @@ def video_demo():
 
         # Detect
         det_boxes, det_probs, det_class, pred_box_delta = sess.run(
-            [model.det_boxes, model.det_probs, model.det_class, model.pred_box_delta],
+            [model.det_boxes, model.det_probs, model.det_class, model.box_of1],
             feed_dict={model.image_input:[im_input]})
 
         t_detect = time.time()
@@ -220,7 +220,7 @@ def image_demo():
             im, final_boxes,
             [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
                 for idx, prob in zip(final_class, final_probs)],
-            cdict=cls2clr,
+            cdict=cls2clr, write=True, img_name=f.split('\\')[-1].split('.')[0]
         )
 
         file_name = os.path.split(f)[1]

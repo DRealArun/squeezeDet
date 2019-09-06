@@ -10,14 +10,52 @@ from PIL import Image
 
 from dataset.imdb import imdb
 from utils.util import bbox_transform_inv, batch_iou
+import imageio as sp
 
-class toy_car(imdb):
+from collections import namedtuple
+Label = namedtuple( 'Label' , [
+
+    'name'        , # The identifier of this label, e.g. 'car', 'person', ... .
+                    # We use them to uniquely name a class
+
+    'id'          , # An integer ID that is associated with this label.
+                    # The IDs are used to represent the label in ground truth images
+                    # An ID of -1 means that this label does not have an ID and thus
+                    # is ignored when creating ground truth images (e.g. license plate).
+                    # Do not modify these IDs, since exactly these IDs are expected by the
+                    # evaluation server.
+
+    'trainId'     , # Feel free to modify these IDs as suitable for your method. Then create
+                    # ground truth images with train IDs, using the tools provided in the
+                    # 'preparation' folder. However, make sure to validate or submit results
+                    # to our evaluation server using the regular IDs above!
+                    # For trainIds, multiple labels might have the same ID. Then, these labels
+                    # are mapped to the same class in the ground truth images. For the inverse
+                    # mapping, we use the label that is defined first in the list below.
+                    # For example, mapping all void-type classes to the same ID in training,
+                    # might make sense for some approaches.
+                    # Max value is 255!
+
+    'category'    , # The name of the category that this label belongs to
+
+    'categoryId'  , # The ID of this category. Used to create ground truth images
+                    # on category level.
+
+    'hasInstances', # Whether this label distinguishes between single instances or not
+
+    'ignoreInEval', # Whether pixels having this class as ground truth label are ignored
+                    # during evaluations or not
+
+    'color'       , # The color of this label
+    ] )
+
+class kitti_instance(imdb):
   def __init__(self, image_set, data_path, mc):
     imdb.__init__(self, 'toy_car_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
     self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')
-    self._label_path = os.path.join(self._data_root_path, 'training', 'mask_2')
+    self._label_path = os.path.join(self._data_root_path, 'training', 'instance')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
 
@@ -25,7 +63,54 @@ class toy_car(imdb):
     self._image_idx = self._load_image_set_idx() 
     # a dict of image_idx -> [[cx, cy, w, h, cls_idx]]. x,y,w,h are not divided by
     # the image width and height
-    self._rois = self._load_toy_annotation()
+
+    self.labels = [
+    #       name                     id    trainId   category            catId     hasInstances   ignoreInEval   color
+    Label(  'unlabeled'            ,  0 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+    Label(  'ego vehicle'          ,  1 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+    Label(  'rectification border' ,  2 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+    Label(  'out of roi'           ,  3 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+    Label(  'static'               ,  4 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+    Label(  'dynamic'              ,  5 ,      255 , 'void'            , 0       , False        , True         , (111, 74,  0) ),
+    Label(  'ground'               ,  6 ,      255 , 'void'            , 0       , False        , True         , ( 81,  0, 81) ),
+    Label(  'road'                 ,  7 ,        0 , 'flat'            , 1       , False        , False        , (128, 64,128) ),
+    Label(  'sidewalk'             ,  8 ,        1 , 'flat'            , 1       , False        , False        , (244, 35,232) ),
+    Label(  'parking'              ,  9 ,      255 , 'flat'            , 1       , False        , True         , (250,170,160) ),
+    Label(  'rail track'           , 10 ,      255 , 'flat'            , 1       , False        , True         , (230,150,140) ),
+    Label(  'building'             , 11 ,        2 , 'construction'    , 2       , False        , False        , ( 70, 70, 70) ),
+    Label(  'wall'                 , 12 ,        3 , 'construction'    , 2       , False        , False        , (102,102,156) ),
+    Label(  'fence'                , 13 ,        4 , 'construction'    , 2       , False        , False        , (190,153,153) ),
+    Label(  'guard rail'           , 14 ,      255 , 'construction'    , 2       , False        , True         , (180,165,180) ),
+    Label(  'bridge'               , 15 ,      255 , 'construction'    , 2       , False        , True         , (150,100,100) ),
+    Label(  'tunnel'               , 16 ,      255 , 'construction'    , 2       , False        , True         , (150,120, 90) ),
+    Label(  'pole'                 , 17 ,        5 , 'object'          , 3       , False        , False        , (153,153,153) ),
+    Label(  'polegroup'            , 18 ,      255 , 'object'          , 3       , False        , True         , (153,153,153) ),
+    Label(  'traffic light'        , 19 ,        6 , 'object'          , 3       , False        , False        , (250,170, 30) ),
+    Label(  'traffic sign'         , 20 ,        7 , 'object'          , 3       , False        , False        , (220,220,  0) ),
+    Label(  'vegetation'           , 21 ,        8 , 'nature'          , 4       , False        , False        , (107,142, 35) ),
+    Label(  'terrain'              , 22 ,        9 , 'nature'          , 4       , False        , False        , (152,251,152) ),
+    Label(  'sky'                  , 23 ,       10 , 'sky'             , 5       , False        , False        , ( 70,130,180) ),
+    Label(  'person'               , 24 ,       11 , 'human'           , 6       , True         , False        , (220, 20, 60) ),
+    Label(  'rider'                , 25 ,       12 , 'human'           , 6       , True         , False        , (255,  0,  0) ),
+    Label(  'car'                  , 26 ,       13 , 'vehicle'         , 7       , True         , False        , (  0,  0,142) ),
+    Label(  'truck'                , 27 ,       14 , 'vehicle'         , 7       , True         , False        , (  0,  0, 70) ),
+    Label(  'bus'                  , 28 ,       15 , 'vehicle'         , 7       , True         , False        , (  0, 60,100) ),
+    Label(  'caravan'              , 29 ,      255 , 'vehicle'         , 7       , True         , True         , (  0,  0, 90) ),
+    Label(  'trailer'              , 30 ,      255 , 'vehicle'         , 7       , True         , True         , (  0,  0,110) ),
+    Label(  'train'                , 31 ,       16 , 'vehicle'         , 7       , True         , False        , (  0, 80,100) ),
+    Label(  'motorcycle'           , 32 ,       17 , 'vehicle'         , 7       , True         , False        , (  0,  0,230) ),
+    Label(  'bicycle'              , 33 ,       18 , 'vehicle'         , 7       , True         , False        , (119, 11, 32) ),
+    Label(  'license plate'        , -1 ,       -1 , 'vehicle'         , 7       , False        , True         , (  0,  0,142) ),
+    ]
+
+    # name to label object
+    self.name2label      = { label.name    : label for label in self.labels           }
+    # id to label object
+    self.id2label        = { label.id      : label for label in self.labels           }
+    # trainId to label object
+    self.trainId2label   = { label.trainId : label for label in reversed(self.labels) }
+
+    self._rois = self._load_kitti_instance_annotation()
 
     ## batch reader ##
     self._perm_idx = None
@@ -34,6 +119,14 @@ class toy_car(imdb):
     self._shuffle_image_idx()
 
     self._eval_tool = None
+
+  def getSingleInstanceName(self, idval):
+      label = self.id2label[idval]
+      # test if the new name denotes a label that actually has instances
+      if not label.hasInstances:
+          return None
+      # all good then
+      return label.name
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
@@ -46,7 +139,7 @@ class toy_car(imdb):
     return image_idx
 
   def _image_path_at(self, idx):
-    image_path = os.path.join(self._image_path, idx+'.jpg')
+    image_path = os.path.join(self._image_path, idx+'.png')
     assert os.path.exists(image_path), \
         'Image does not exist: {}'.format(image_path)
     return image_path
@@ -92,181 +185,45 @@ class toy_car(imdb):
     mask_vector = [xmin, ymin, xmax, ymax, intersecting_pts[0][1]-ymin, intersecting_pts[1][1]-ymin, intersecting_pts[2][0]-xmin, intersecting_pts[3][0]-xmin, intersecting_pts[4][1]-ymin, intersecting_pts[5][1]-ymin, intersecting_pts[6][0]-xmin, intersecting_pts[7][0]-xmin]
     return mask_vector
 
-# Mask extraction with rotation
-#   # Assume binary mask [image values should be 0 or 255]
-#   def get_bboxes(self, image_mask):
-#     rr, cc = np.where(image_mask != 0)
-#     xmin = min(cc)
-#     ymin = min(rr)
-#     xmax = max(cc)
-#     ymax = max(rr)
-
-#     h = ymax-ymin
-#     if h % 2 != 0:
-#         h +=1
-#     w = xmax-xmin
-#     if w % 2 != 0:
-#         w +=1
-#     cx = xmin + w/2
-#     cy = ymin + h/2
-    
-#     bboxes = [cx, cy, w, h]
-    
-#     h, w = image_mask.shape
-#     M = cv2.getRotationMatrix2D((cx,cy),-45,1)
-#     cos = np.abs(M[0, 0])
-#     sin = np.abs(M[0, 1])
- 
-#     # compute the new bounding dimensions of the image
-#     nW = int((h * sin) + (w * cos))
-#     nH = int((h * cos) + (w * sin))
- 
-#     # adjust the rotation matrix to take into account translation
-# #     M[0, 2] += (nW / 2) - cx
-# #     M[1, 2] += (nH / 2) - cy
- 
-#     # perform the actual rotation and return the image
-#     dst = cv2.warpAffine(image_mask, M, (nW, nH))
-#     rr, cc = np.where(dst != 0)
-#     xmin = min(cc)
-#     ymin = min(rr)
-#     xmax = max(cc)
-#     ymax = max(rr)
-    
-#     h = ymax-ymin
-#     if h % 2 != 0:
-#         h +=1
-#     w = xmax-xmin
-#     if w % 2 != 0:
-#         w +=1
-#     cx = xmin + w/2
-#     cy = ymin + h/2
-    
-#     bboxes.extend([cx, cy, w, h])
-    
-#     return bboxes
-
-  # def get_intersecting_point(self, vert_hor, eq1, pt1, pt2):
-  #     pt1_x, pt1_y = pt1
-  #     pt2_x, pt2_y = pt2
-  #     m = (pt2_y-pt1_y)/(pt2_x-pt1_x)
-  #     c = pt2_y - (m*pt2_x)
-      
-  #     if vert_hor == "vert":
-  #         x_cor = eq1
-  #         y_cor = (m*x_cor)+c
-  #     else:
-  #         y_cor = eq1
-  #         x_cor = (y_cor - c)/m
-      
-  #     return (x_cor, y_cor)
-
-
-  # Post Processing
-  # def get_encompassing_mask_new(self, image_mask):
-  #     bboxe_dest = self.get_bboxes(image_mask)
-  #     x11 = bboxe_dest[0] - bboxe_dest[2]/2
-  #     y11 = bboxe_dest[1] - bboxe_dest[3]/2
-  #     x12 = bboxe_dest[0] + bboxe_dest[2]/2
-  #     y12 = bboxe_dest[1] + bboxe_dest[3]/2
-  #     eq1s = [x11, x11, y12, y12, x12, x12, y11, y11]
-  #     vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
-  #     x11 = bboxe_dest[4] - bboxe_dest[6]/2
-  #     y11 = bboxe_dest[5] - bboxe_dest[7]/2
-  #     x12 = bboxe_dest[4] + bboxe_dest[6]/2
-  #     y12 = bboxe_dest[5] + bboxe_dest[7]/2
-  #     corners = np.array([[x11, y11, x11, y12, x12, y12, x12, y11, bboxe_dest[4], bboxe_dest[5]]])
-  #     corners = corners.reshape(-1,2)
-  #     corners = np.hstack((corners, np.ones((corners.shape[0],1), dtype = type(corners[0][0]))))
-  #     M = cv2.getRotationMatrix2D((bboxe_dest[0], bboxe_dest[1]), 45, 1.0)# Very important to rotate before using the values
-  #     cos = np.abs(M[0, 0])
-  #     sin = np.abs(M[0, 1])
-  #     w = bboxe_dest[6]
-  #     h = bboxe_dest[7]
-  #     nW = int((h * sin) + (w * cos))
-  #     nH = int((h * cos) + (w * sin))
-  #     calculated = np.dot(M,corners.T).T
-  #     x11, y11, x12, y12, x13, y13, x14, y14, cnx, cny = calculated.reshape(-1,10)[0]
-  #     pt1s = [(x14, y14), (x11, y11), (x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14)]
-  #     pt2s = [(x11, y11), (x12, y12), (x12, y12), (x13, y13), (x13, y13), (x14, y14), (x14, y14), (x11, y11)]
-  #     intersecting_pts = []
-  #     for eq1, pt1, pt2, vert_hor in zip(eq1s, pt1s, pt2s, vert_or_hors):
-  #         op_pt = self.get_intersecting_point(vert_hor, eq1, pt1, pt2)
-  #         intersecting_pts.append(op_pt)
-  #     point = np.array(intersecting_pts, 'int32')
-  #     xmin = np.min(point[:,0])
-  #     ymin = np.min(point[:,1])
-  #     xmax = np.max(point[:,0])
-  #     ymax = np.max(point[:,1])
-  #     w = xmax - xmin
-  #     if w % 2 != 0:
-  #         w += 1
-  #     h = ymax - ymin
-  #     if h % 2 != 0:
-  #         h += 1
-  #     center_x = int(xmin + w/2)
-  #     center_y = int(ymin + h/2)
-  #     mask_vector = [center_x, center_y, w, h, point[0][1]-ymin, point[1][1]-ymin, point[2][0]-xmin, point[3][0]-xmin, point[4][1]-ymin, point[5][1]-ymin, point[6][0]-xmin, point[7][0]-xmin]
-  #     return mask_vector
-
-  # Old working without mask extraction
-
-  # def _load_toy_annotation(self):
-  #   idx2annotation = {}
-  #   for index in self._image_idx:
-  #     bboxes = []
-  #     filename = os.path.join(self._label_path, index+'.png')
-  #     cls = self._class_to_idx['toy']
-  #     mask = np.asarray(Image.open(filename))
-  #     im2, contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-  #     hull = []
-  #     drawing = np.zeros((mask.shape[0], mask.shape[1], 3), np.uint8)
-  #     # calculate points for each contour
-  #     for i in range(len(contours)):
-  #       # creating convex hull object for each contour
-  #       hull.append(cv2.convexHull(contours[i], False))
-  #       color = (255, 255, 255)
-  #       cv2.fillConvexPoly(drawing, hull[i], color)
-  #       gray = cv2.cvtColor(drawing, cv2.COLOR_BGR2GRAY) # convert to grayscale
-  #       ret, rough_mask = cv2.threshold(gray, 125, 255, cv2.THRESH_BINARY)
-  #     rows, cols = np.where(rough_mask != 0) # Use rough mask to calculate the bounding box
-  #     xmin = min(cols)
-  #     ymin = min(rows)
-  #     xmax = max(cols)
-  #     ymax = max(rows)
-  #     assert xmin >= 0.0 and xmin <= xmax, \
-  #         'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
-  #             .format(xmin, xmax, index)
-  #     assert ymin >= 0.0 and ymin <= ymax, \
-  #         'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
-  #             .format(ymin, ymax, index)
-
-  #     x = int(round(xmin + ((xmax-xmin)/2)))
-  #     y = int(round(ymin + ((ymax-ymin)/2)))
-  #     w = xmax - xmin
-  #     h = ymax - ymin
-  #     bboxes.append([x, y, w, h, cls])
-  #     idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
-  #   return idx2annotation
-
-  def _load_toy_annotation(self):
+  def _load_kitti_instance_annotation(self):
     idx2annotation = {}
     for index in self._image_idx:
       bboxes = []
       filename = os.path.join(self._label_path, index+'.png')
-      cls = self._class_to_idx['toy']
-      mask = np.asarray(Image.open(filename))
-      vector = self.get_exteme_points(mask)
-      xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8 = vector
-      assert xmin >= 0.0 and xmin <= xmax, \
-          'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
-              .format(xmin, xmax, index)
-      assert ymin >= 0.0 and ymin <= ymax, \
-          'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
-              .format(ymin, ymax, index)
-      cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
-      bboxes.append([cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8, cls])
-      idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
+      instance_semantic_gt = sp.imread(filename)
+      instance_gt = instance_semantic_gt  % 256
+      semantic_gt = instance_semantic_gt // 256
+      instance_filter = np.zeros_like(instance_gt)
+      instance_filter[np.where(instance_gt != 0)] = 255
+      semantic_instance_mask = np.bitwise_and(semantic_gt, instance_filter)
+      unique_classes = np.unique(semantic_instance_mask)
+      for class_val in unique_classes:
+          filtered_mask = np.zeros_like(instance_gt)
+          if class_val == 0:
+              continue
+          indices = np.where(semantic_instance_mask == class_val)
+          filtered_mask[indices] = instance_gt[indices]
+          unique_instances = np.unique(filtered_mask)
+          for instance_id in unique_instances:
+              if instance_id == 0:
+                  continue
+              name = self.getSingleInstanceName(class_val)
+              refined_mask = np.zeros_like(filtered_mask)
+              ids = np.where(filtered_mask == instance_id)
+              refined_mask[ids] = 255
+              mask = np.uint8(refined_mask)
+              cls = self._class_to_idx[name]
+              vector = self.get_exteme_points(mask)
+              xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8 = vector
+              assert xmin >= 0.0 and xmin <= xmax, \
+                  'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
+                      .format(xmin, xmax, index)
+              assert ymin >= 0.0 and ymin <= ymax, \
+                  'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
+                      .format(ymin, ymax, index)
+              cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
+              bboxes.append([cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8, cls])
+      idx2annotation[index] = bboxes # Assuming each image has a single object whiøch is true for toys dataset
     return idx2annotation
 
   def evaluate_detections(self, eval_dir, global_step, all_boxes):

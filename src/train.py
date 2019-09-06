@@ -18,14 +18,14 @@ import tensorflow as tf
 import threading
 
 from config import *
-from dataset import pascal_voc, kitti, toy_car
+from dataset import pascal_voc, kitti, toy_car, kitti_instance
 from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 from nets import *
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('dataset', 'TOY',
-                           """Currently only support KITTI dataset.""")
+tf.app.flags.DEFINE_string('dataset', 'KITTI_INSTANCE',
+                           """Currently only support KITTI datasets and Toy.""")
 tf.app.flags.DEFINE_string('data_path', '', """Root directory of data""")
 tf.app.flags.DEFINE_string('image_set', 'train',
                            """ Can be train, trainval, val, or test""")
@@ -48,7 +48,7 @@ tf.app.flags.DEFINE_integer('checkpoint_step', 1000,
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 
 
-def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center'):
+def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center', write=False, img_name=None):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
 
@@ -75,6 +75,11 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
     cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
     for p in range(len(points)):
       cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
+    if write:
+      trainval_file = r"C:\Users\Arun\Downloads\Deep-Learning-master\Custom_Mask_RCNN\Generated_annotations\\"+str(img_name)+".txt"
+      print(trainval_file)
+      with open(trainval_file, 'w') as f:
+          f.write('{} {} {} {} {} {} {} {} {} {} {} {}\n'.format(xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8))
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob):
@@ -106,8 +111,8 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
 
 def train():
   """Train SqueezeDet model"""
-  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'TOY', \
-      'Currently only support KITTI and TOY dataset'
+  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'TOY' or FLAGS.dataset == 'KITTI_INSTANCE', \
+      'Currently only support KITTI, KITTI_INSTANCE and TOY dataset'
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
@@ -138,7 +143,8 @@ def train():
       model = SqueezeDetPlus(mc)
 
     # imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
-    imdb = toy_car(FLAGS.image_set, FLAGS.data_path, mc)
+    # imdb = toy_car(FLAGS.image_set, FLAGS.data_path, mc)
+    imdb = kitti_instance(FLAGS.image_set, FLAGS.data_path, mc)
     print("CLASS", imdb._class_to_idx)
 
     # save model size, flops, activations by layers
