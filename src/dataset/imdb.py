@@ -205,10 +205,10 @@ class imdb(object):
       y_scale = mc.IMAGE_HEIGHT/orig_h
       gt_bbox[:, 0:4:2] = (np.round(gt_bbox[:, 0:4:2]*x_scale)).astype(np.int)
       gt_bbox[:, 1:4:2] = (np.round(gt_bbox[:, 1:4:2]*y_scale)).astype(np.int)
-      gt_bbox[:, 4:6:1] = (np.round(gt_bbox[:, 4:6:1]*y_scale)).astype(np.int)
-      gt_bbox[:, 6:8:1] = (np.round(gt_bbox[:, 6:8:1]*x_scale)).astype(np.int)
-      gt_bbox[:, 8:10:1] = (np.round(gt_bbox[:, 8:10:1]*y_scale)).astype(np.int)
-      gt_bbox[:, 10:12:1] =(np.round(gt_bbox[:, 10:12:1]*x_scale)).astype(np.int)
+      # gt_bbox[:, 4:6:1] = (np.round(gt_bbox[:, 4:6:1]*y_scale)).astype(np.int)
+      # gt_bbox[:, 6:8:1] = (np.round(gt_bbox[:, 6:8:1]*x_scale)).astype(np.int)
+      # gt_bbox[:, 8:10:1] = (np.round(gt_bbox[:, 8:10:1]*y_scale)).astype(np.int)
+      # gt_bbox[:, 10:12:1] =(np.round(gt_bbox[:, 10:12:1]*x_scale)).astype(np.int)
       bbox_per_batch.append(gt_bbox)
 
       aidx_per_image, delta_per_image = [], []

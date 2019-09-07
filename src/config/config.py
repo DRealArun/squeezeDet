@@ -28,6 +28,7 @@ def base_model_config(dataset='PASCAL_VOC'):
     cfg.CLASS_NAMES = ('toy',)
   elif cfg.DATASET == 'KITTI_INSTANCE':
     cfg.CLASS_NAMES = ('person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle')
+    # cfg.CLASS_NAMES = ('car',)
 
 
   # number of categories to classify

@@ -15,7 +15,7 @@ def kitti_squeezeDetPlus_config():
   mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
-  mc.LEARNING_RATE         = 0.01
+  mc.LEARNING_RATE         = 0.005
   mc.DECAY_STEPS           = 10000
   mc.MAX_GRAD_NORM         = 1.0
   mc.MOMENTUM              = 0.9
@@ -31,7 +31,7 @@ def kitti_squeezeDetPlus_config():
   mc.PROB_THRESH           = 0.005
   mc.TOP_N_DETECTION       = 64
 
-  mc.DATA_AUGMENTATION     = True
+  mc.DATA_AUGMENTATION     = False
   mc.DRIFT_X               = 150
   mc.DRIFT_Y               = 100
   mc.EXCLUDE_HARD_EXAMPLES = False

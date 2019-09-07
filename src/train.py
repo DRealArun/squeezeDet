@@ -51,15 +51,16 @@ tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center', write=False, img_name=None):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
-
   for bbox, label in zip(box_list, label_list):
     if form == 'center':
       bbox = bbox_transform(bbox)
 
     xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
-    of1, of2, of3, of4, of5, of6, of7, of8 = [int(bbox[o]) for o in range(len(bbox)) if o >= 4]
+    of1, of2, of3, of4, of5, of6, of7, of8 = [bbox[o] for o in range(len(bbox)) if o >= 4]
 
-    points = [(xmin, of1+ymin), (xmin, of2+ymin), (of3+xmin, ymax), (of4+xmin, ymax), (xmax, of5+ymin), (xmax, of6+ymin), (of7+xmin, ymin), (of8+xmin, ymin)]
+    w = xmax - xmin
+    h = ymax - ymin
+    points = [(xmin, (of1*h)+ymin), (xmin, (of2*h)+ymin), ((of3*w)+xmin, ymax), ((of4*w)+xmin, ymax), (xmax, (of5*h)+ymin), (xmax, (of6*h)+ymin), ((of7*w)+xmin, ymin), ((of8*w)+xmin, ymin)]
     points = np.array(points, 'int32')
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
@@ -84,7 +85,6 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob):
   mc = model.mc
-
   for i in range(len(images)):
     # draw ground truth
     _draw_box(

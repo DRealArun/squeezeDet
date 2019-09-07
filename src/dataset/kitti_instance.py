@@ -110,6 +110,7 @@ class kitti_instance(imdb):
     # trainId to label object
     self.trainId2label   = { label.trainId : label for label in reversed(self.labels) }
 
+    self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']
     self._rois = self._load_kitti_instance_annotation()
 
     ## batch reader ##
@@ -208,21 +209,22 @@ class kitti_instance(imdb):
               if instance_id == 0:
                   continue
               name = self.getSingleInstanceName(class_val)
-              refined_mask = np.zeros_like(filtered_mask)
-              ids = np.where(filtered_mask == instance_id)
-              refined_mask[ids] = 255
-              mask = np.uint8(refined_mask)
-              cls = self._class_to_idx[name]
-              vector = self.get_exteme_points(mask)
-              xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8 = vector
-              assert xmin >= 0.0 and xmin <= xmax, \
-                  'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
-                      .format(xmin, xmax, index)
-              assert ymin >= 0.0 and ymin <= ymax, \
-                  'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
-                      .format(ymin, ymax, index)
-              cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
-              bboxes.append([cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8, cls])
+              if name in self.permitted_classes:
+                refined_mask = np.zeros_like(filtered_mask)
+                ids = np.where(filtered_mask == instance_id)
+                refined_mask[ids] = 255
+                mask = np.uint8(refined_mask)
+                cls = self._class_to_idx[name]
+                vector = self.get_exteme_points(mask)
+                xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8 = vector
+                assert xmin >= 0.0 and xmin <= xmax, \
+                    'Invalid bounding box 1 x-coord xmin {} or xmax {} at {}.txt' \
+                        .format(xmin, xmax, index)
+                assert ymin >= 0.0 and ymin <= ymax, \
+                    'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
+                        .format(ymin, ymax, index)
+                cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
+                bboxes.append([cx, cy, w, h, of1/h, of2/h, of3/w, of4/w, of5/h, of6/h, of7/w, of8/w, cls])
       idx2annotation[index] = bboxes # Assuming each image has a single object whiøch is true for toys dataset
     return idx2annotation
 
