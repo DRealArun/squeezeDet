@@ -216,11 +216,17 @@ def image_demo():
         }
 
         # Draw boxes
+        # _draw_box(
+        #     im, final_boxes,
+        #     [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
+        #         for idx, prob in zip(final_class, final_probs)],
+        #     cdict=cls2clr, write=True, img_name=f.split('\\')[-1].split('.')[0]
+        # )
         _draw_box(
             im, final_boxes,
             [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
                 for idx, prob in zip(final_class, final_probs)],
-            cdict=cls2clr, write=True, img_name=f.split('\\')[-1].split('.')[0]
+            cdict=cls2clr
         )
 
         file_name = os.path.split(f)[1]

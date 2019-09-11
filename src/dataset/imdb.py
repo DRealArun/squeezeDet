@@ -140,7 +140,12 @@ class imdb(object):
 
     for idx in batch_idx:
       # load the image
-      im = cv2.imread(self._image_path_at(idx)).astype(np.float32, copy=False)
+      im = cv2.imread(self._image_path_at(idx))
+      if im is None:
+        print("\n\nCorrupt image found: ", self._image_path_at(idx))
+        continue
+
+      im = im.astype(np.float32, copy=False)
       im -= mc.BGR_MEANS
       orig_h, orig_w, _ = [float(v) for v in im.shape]
 

@@ -24,8 +24,8 @@ from nets import *
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('dataset', 'KITTI_INSTANCE',
-                           """Currently only support KITTI datasets and Toy.""")
+tf.app.flags.DEFINE_string('dataset', 'CITYSCAPE',
+                           """Currently only support KITTI datasets and Toy and CITYSCAPE.""")
 tf.app.flags.DEFINE_string('data_path', '', """Root directory of data""")
 tf.app.flags.DEFINE_string('image_set', 'train',
                            """ Can be train, trainval, val, or test""")
@@ -111,7 +111,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
 
 def train():
   """Train SqueezeDet model"""
-  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'TOY' or FLAGS.dataset == 'KITTI_INSTANCE', \
+  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'TOY' or FLAGS.dataset == 'KITTI_INSTANCE' or FLAGS.dataset == 'CITYSCAPE', \
       'Currently only support KITTI, KITTI_INSTANCE and TOY dataset'
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu

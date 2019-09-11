@@ -265,6 +265,7 @@ class toy_car(imdb):
           'Invalid bounding box 1 y-coord ymin {} or ymax {} at {}.txt' \
               .format(ymin, ymax, index)
       cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
+      print(cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 , cls)
       bboxes.append([cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8, cls])
       idx2annotation[index] = bboxes # Assuming each image has a single object which is true for toys dataset
     return idx2annotation

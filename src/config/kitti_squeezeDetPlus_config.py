@@ -8,14 +8,14 @@ from .config import base_model_config
 
 def kitti_squeezeDetPlus_config():
   """Specify the parameters to tune below."""
-  mc                       = base_model_config('KITTI_INSTANCE')
+  mc                       = base_model_config('CITYSCAPE')
 
   mc.IMAGE_WIDTH           = 1248
   mc.IMAGE_HEIGHT          = 384
   mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
-  mc.LEARNING_RATE         = 0.005
+  mc.LEARNING_RATE         = 0.01
   mc.DECAY_STEPS           = 10000
   mc.MAX_GRAD_NORM         = 1.0
   mc.MOMENTUM              = 0.9

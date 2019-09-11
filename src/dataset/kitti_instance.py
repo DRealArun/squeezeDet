@@ -11,6 +11,7 @@ from PIL import Image
 from dataset.imdb import imdb
 from utils.util import bbox_transform_inv, batch_iou
 import imageio as sp
+import json
 
 from collections import namedtuple
 Label = namedtuple( 'Label' , [
@@ -54,8 +55,8 @@ class kitti_instance(imdb):
     imdb.__init__(self, 'toy_car_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
-    self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')
-    self._label_path = os.path.join(self._data_root_path, 'training', 'instance')
+    self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')#KITTI
+    self._label_path = os.path.join(self._data_root_path, 'training', 'instance')#KITTI
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
 
@@ -111,7 +112,8 @@ class kitti_instance(imdb):
     self.trainId2label   = { label.trainId : label for label in reversed(self.labels) }
 
     self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']
-    self._rois = self._load_kitti_instance_annotation()
+    # self._rois = self._load_kitti_instance_annotation() #KITTI
+    self._rois = self._load_cityscape_instance_annotation() #CITYSCAPE
 
     ## batch reader ##
     self._perm_idx = None
@@ -128,6 +130,20 @@ class kitti_instance(imdb):
           return None
       # all good then
       return label.name
+
+  def assureSingleInstance(self, name):
+    # if the name is known, it is not a group
+    if name in self.name2label:
+        return self.name2label[name], name
+    # test if the name actually denotes a group
+    if not name.endswith("group"):
+        return None, None
+    # remove group
+    name = name[:-len("group")]
+    # test if the new name exists
+    if not name in self.name2label:
+        return None, None
+    return self.name2label[name], name
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
@@ -226,6 +242,89 @@ class kitti_instance(imdb):
                 cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
                 bboxes.append([cx, cy, w, h, of1/h, of2/h, of3/w, of4/w, of5/h, of6/h, of7/w, of8/w, cls])
       idx2annotation[index] = bboxes # Assuming each image has a single object whiøch is true for toys dataset
+    return idx2annotation
+
+  def get_exteme_points_cityscape(self, polygon, height, width):
+    outline = np.array(polygon)
+    rrr, ccc = outline[:,1], outline[:,0]
+    rr = []
+    cc = []
+    for r in rrr:
+      if r < 0:
+        r = 0
+      if r > height:
+        r = height
+      rr.append(r)
+    for c in ccc:
+      if c < 0:
+        c = 0
+      if c > width:
+        c = width
+      cc.append(c)
+    rr = np.array(rr)
+    cc = np.array(cc)
+    sum_values = cc + rr
+    diff_values = cc - rr
+#     print(np.shape(sum_values), np.shape(rr), rr[0])
+    xmin = max(min(cc), 0)
+    xmax = min(max(cc), width)
+    ymin = max(min(rr), 0)
+    ymax = min(max(rr), height)
+    min_sum_indices = np.where(sum_values == np.amin(sum_values))[0][0]
+    pt_p_min = (cc[min_sum_indices], rr[min_sum_indices])
+    max_sum_indices = np.where(sum_values == np.amax(sum_values))[0][0]
+    pt_p_max = (cc[max_sum_indices], rr[max_sum_indices])
+    min_diff_indices = np.where(diff_values == np.amin(diff_values))[0][0]
+    pt_n_min = (cc[min_diff_indices], rr[min_diff_indices])
+    max_diff_indices = np.where(diff_values == np.amax(diff_values))[0][0]
+    pt_n_max = (cc[max_diff_indices], rr[max_diff_indices])
+    eq1s = [xmin, xmin, ymax, ymax, xmax, xmax, ymin, ymin]
+    vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
+    pts = [pt_p_min, pt_n_min, pt_n_min, pt_p_max, pt_p_max, pt_n_max, pt_n_max, pt_p_min]
+    ms = [-1, +1, +1, -1, -1, +1, +1, -1]
+    intersecting_pts = []
+    for eq1, pt, vert_hor, m in zip(eq1s, pts, vert_or_hors, ms):
+        op_pt = self.get_intersecting_point(vert_hor, eq1, pt, m)
+        intersecting_pts.append(op_pt)
+    mask_vector = [xmin, ymin, xmax, ymax, intersecting_pts[0][1]-ymin, intersecting_pts[1][1]-ymin, intersecting_pts[2][0]-xmin, intersecting_pts[3][0]-xmin, intersecting_pts[4][1]-ymin, intersecting_pts[5][1]-ymin, intersecting_pts[6][0]-xmin, intersecting_pts[7][0]-xmin]
+    return mask_vector
+
+  def _load_cityscape_instance_annotation(self):
+    idx2annotation = {}
+    rejected_image_ids = []
+    for index in self._image_idx:
+      bboxes = []
+      filename = os.path.join(self._label_path, index[:-11]+'gtFine_polygons.json')
+      instance_info = dict()
+      with open(filename) as f:
+        data_dict = json.load(f)
+        imgHeight = data_dict['imgHeight']
+        imgWidth = data_dict['imgWidth']
+        instances = data_dict['objects']
+        for instance in instances:
+          class_name = instance['label']
+          params, modified_name = self.assureSingleInstance(class_name)
+          if params != None and params.hasInstances and modified_name in self.permitted_classes:
+            polygon = np.array(instance['polygon'])
+            cls = self._class_to_idx[modified_name]
+            vector = self.get_exteme_points_cityscape(polygon, imgHeight, imgWidth) 
+            xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8 = vector
+            assert xmin >= 0.0 and xmin <= xmax, \
+                'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
+                    .format(xmin, xmax, index)
+            assert ymin >= 0.0 and ymin <= ymax, \
+                'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
+                    .format(ymin, ymax, index)
+            cx, cy, w, h, of1, of2, of3, of4, of5, of6, of7, of8 = bbox_transform_inv([xmin, ymin, xmax, ymax, of1, of2, of3, of4, of5, of6, of7, of8])
+            assert not (of1 < 0 or of2 < 0 or of3 < 0 or of4 < 0 or of5 < 0 or of6 < 0 or of7< 0 or of8 < 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)+" "+ str(of5)+" "+ str(of6)+" "+ str(of7)+" "+ str(of8)
+            bboxes.append([cx, cy, w, h, of1/h, of2/h, of3/w, of4/w, of5/h, of6/h, of7/w, of8/w, cls])
+      # assert len(bboxes) !=0, "Error here empty bounding box appending"+str(bboxes)
+      if len(bboxes) == 0:
+        rejected_image_ids.append(index)
+      else:
+        idx2annotation[index] = bboxes
+    for id_val in rejected_image_ids:
+      self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.
     return idx2annotation
 
   def evaluate_detections(self, eval_dir, global_step, all_boxes):
