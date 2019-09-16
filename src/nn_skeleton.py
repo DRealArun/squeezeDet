@@ -88,10 +88,10 @@ class ModelSkeleton:
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 1], name='box_mask')
     # Tensor used to represent bounding box deltas.
     self.ph_box_delta_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 12], name='box_delta_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 8], name='box_delta_input')
     # Tensor used to represent bounding box coordinates.
     self.ph_box_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 12], name='box_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 8], name='box_input')
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
@@ -108,8 +108,8 @@ class ModelSkeleton:
                 tf.float32, tf.float32],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
-                [mc.ANCHORS, 12],
-                [mc.ANCHORS, 12],
+                [mc.ANCHORS, 8],
+                [mc.ANCHORS, 8],
                 [mc.ANCHORS, mc.CLASSES]],
     )
 
@@ -173,7 +173,7 @@ class ModelSkeleton:
       # bbox_delta
       self.pred_box_delta = tf.reshape(
           preds[:, :, :, num_confidence_scores:],
-          [mc.BATCH_SIZE, mc.ANCHORS, 12],
+          [mc.BATCH_SIZE, mc.ANCHORS, 8],
           name='bbox_delta'
       )
 
@@ -182,13 +182,14 @@ class ModelSkeleton:
 
     with tf.variable_scope('bbox') as scope:
       with tf.variable_scope('stretching'):
-        delta_x, delta_y, delta_w, delta_h, delta_of1, delta_of2, delta_of3, delta_of4, delta_of5, delta_of6, delta_of7, delta_of8 = tf.unstack(
+        delta_x, delta_y, delta_w, delta_h, delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
             self.pred_box_delta, axis=2)
 
         anchor_x = mc.ANCHOR_BOX[:, 0]
         anchor_y = mc.ANCHOR_BOX[:, 1]
         anchor_w = mc.ANCHOR_BOX[:, 2]
         anchor_h = mc.ANCHOR_BOX[:, 3]
+        anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
 
         box_center_x = tf.identity(
             anchor_x + delta_x * anchor_w, name='bbox_cx')
@@ -202,30 +203,17 @@ class ModelSkeleton:
             name='bbox_height')
         EPSILON = 1e-8
         box_of1= tf.identity(
-            (anchor_h * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
+            (anchor_diag * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
             name='bbox_of1')
         box_of2= tf.identity(
-            (anchor_h * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
+            (anchor_diag * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
             name='bbox_of2')
         box_of3= tf.identity(
-            (anchor_w * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
+            (anchor_diag * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
             name='bbox_of3')
         box_of4= tf.identity(
-            (anchor_w * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
+            (anchor_diag * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
             name='bbox_of4')
-        box_of5= tf.identity(
-            (anchor_h * util.safe_exp(delta_of5, mc.EXP_THRESH))-EPSILON,
-            name='bbox_of5')
-        box_of6= tf.identity(
-            (anchor_h * util.safe_exp(delta_of6, mc.EXP_THRESH))-EPSILON,
-            name='bbox_of6')
-        box_of7= tf.identity(
-            (anchor_w * util.safe_exp(delta_of7, mc.EXP_THRESH))-EPSILON,
-            name='bbox_of7')
-        box_of8= tf.identity(
-            (anchor_w * util.safe_exp(delta_of8, mc.EXP_THRESH))-EPSILON,
-            name='bbox_of8')
-
 
         self._activation_summary(delta_x, 'delta_x')
         self._activation_summary(delta_y, 'delta_y')
@@ -235,10 +223,6 @@ class ModelSkeleton:
         self._activation_summary(delta_of2, 'delta_of2')
         self._activation_summary(delta_of3, 'delta_of3')
         self._activation_summary(delta_of4, 'delta_of4')
-        self._activation_summary(delta_of5, 'delta_of5')
-        self._activation_summary(delta_of6, 'delta_of6')
-        self._activation_summary(delta_of7, 'delta_of7')
-        self._activation_summary(delta_of8, 'delta_of8')
 
         self._activation_summary(box_center_x, 'bbox_cx')
         self._activation_summary(box_center_y, 'bbox_cy')
@@ -248,14 +232,10 @@ class ModelSkeleton:
         self._activation_summary(box_of2, 'box_of2')
         self._activation_summary(box_of3, 'box_of3')
         self._activation_summary(box_of4, 'box_of4')
-        self._activation_summary(box_of5, 'box_of5')
-        self._activation_summary(box_of6, 'box_of6')
-        self._activation_summary(box_of7, 'box_of7')
-        self._activation_summary(box_of8, 'box_of8')
 
       with tf.variable_scope('trimming'):
-        xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4, box_of5, box_of6, box_of7, box_of8 = util.bbox_transform(
-            [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4, box_of5, box_of6, box_of7, box_of8])
+        xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform(
+            [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
 
         # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
         # pixels. Same for y.
@@ -276,7 +256,7 @@ class ModelSkeleton:
         self._activation_summary(ymaxs, 'box_ymax')
 
         self.det_boxes = tf.transpose(
-            tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4, box_of5, box_of6, box_of7, box_of8])),
+            tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
             (1, 2, 0), name='bbox'
         )
 
@@ -410,9 +390,17 @@ class ModelSkeleton:
         tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
         name='image_to_show'
     )
+    self.filters_to_show = tf.placeholder(
+        tf.float32, [None, None, None, 1],
+        name='filters_to_show'
+    )
     self.viz_op = tf.summary.image('sample_detection_results',
         self.image_to_show, collections='image_summary',
         max_outputs=mc.BATCH_SIZE)
+
+    self.viz_filt_op = tf.summary.image('sample_filter_results',
+        self.filters_to_show, collections='filter_summary',
+        max_outputs=1)
 
   def _conv_bn_layer(
       self, inputs, conv_param_name, bn_param_name, scale_param_name, filters,

@@ -16,6 +16,7 @@ import numpy as np
 from six.moves import xrange
 import tensorflow as tf
 import threading
+import math
 
 from config import *
 from dataset import pascal_voc, kitti, toy_car, kitti_instance
@@ -53,14 +54,55 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
       'bounding box format not accepted: {}.'.format(form)
   for bbox, label in zip(box_list, label_list):
     if form == 'center':
+      raw_bounding_box = bbox
       bbox = bbox_transform(bbox)
+    else:
+      raw_bounding_box = bbox_transform_inv2(bbox)
 
     xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
-    of1, of2, of3, of4, of5, of6, of7, of8 = [bbox[o] for o in range(len(bbox)) if o >= 4]
+    # of1, of2, of3, of4 = [bbox[o] for o in range(len(bbox)) if o >= 4]
 
-    w = xmax - xmin
-    h = ymax - ymin
-    points = [(xmin, (of1*h)+ymin), (xmin, (of2*h)+ymin), ((of3*w)+xmin, ymax), ((of4*w)+xmin, ymax), (xmax, (of5*h)+ymin), (xmax, (of6*h)+ymin), ((of7*w)+xmin, ymin), ((of8*w)+xmin, ymin)]
+    # w = xmax - xmin
+    # h = ymax - ymin
+
+    def get_intersecting_point_new(vert_hor, eq1, pt, m):
+      pt_x, pt_y = pt
+      c = pt_y - (m*pt_x)
+      if vert_hor == "vert":
+          x_cor = eq1
+          y_cor = (m*x_cor) + c
+      else:
+          y_cor = eq1
+          x_cor = (y_cor - c)/m
+      return (x_cor, y_cor)
+                 
+    def decode_parameterization(mask_vector):
+      center_x, center_y, width, height, off1, off2, off3, off4 = mask_vector
+      cos = math.cos(math.radians(45))
+      sin = math.cos(math.radians(45))
+      pts = [0,0,0,0]
+      pts[0] = (center_x-off1*cos, center_y-off1*sin)
+      pts[1] = (center_x-off2*cos, center_y+off2*sin)
+      pts[2] = (center_x+off3*cos, center_y+off3*sin)
+      pts[3] = (center_x+off4*cos, center_y-off4*sin)
+      xmin = center_x - (0.5*width)
+      xmax = center_x + (0.5*width)
+      ymin = center_y - (0.5*height)
+      ymax = center_y + (0.5*height)
+      points = [pts[0], pts[1], pts[1], pts[2], pts[2], pts[3], pts[3], pts[0]]
+      eq1s = [xmin, xmin, ymax, ymax, xmax, xmax, ymin, ymin]
+      vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
+      m1 = (pts[2][1]-pts[0][1])/(pts[2][0]-pts[0][0])
+      m2 = (pts[3][1]-pts[1][1])/(pts[3][0]-pts[1][0])
+      ms = [-1/m1, -1/m2, -1/m2, -1/m1, -1/m1, -1/m2, -1/m2, -1/m1]
+      intersecting_pts = []
+      for eq1, pt, vert_hor, m in zip(eq1s, points, vert_or_hors, ms):
+          op_pt = get_intersecting_point_new(vert_hor, eq1, pt, m)
+          intersecting_pts.append(op_pt)
+      return intersecting_pts
+
+    points = decode_parameterization(raw_bounding_box)
+    points = np.round(points)
     points = np.array(points, 'int32')
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
@@ -192,7 +234,7 @@ def train():
                 [i, aidx_per_batch[i][j], label_per_batch[i][j]])
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(12)])
+                [[i, aidx_per_batch[i][j], k] for k in range(8)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -223,10 +265,10 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 12],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 8],
               box_delta_values),
           box_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 12],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 8],
               box_values),
           labels: sparse_to_dense(
               label_indices,
@@ -291,12 +333,13 @@ def train():
         op_list = [
             model.train_op, model.loss, summary_op, model.det_boxes,
             model.det_probs, model.det_class, model.conf_loss,
-            model.bbox_loss, model.class_loss
+            model.bbox_loss, model.class_loss, model.filters
         ]
         _, loss_value, summary_str, det_boxes, det_probs, det_class, \
-            conf_loss, bbox_loss, class_loss = sess.run(
+            conf_loss, bbox_loss, class_loss, filters = sess.run(
                 op_list, feed_dict=feed_dict)
 
+        print("Filter Shapes: ", np.shape(filters))
         _viz_prediction_result(
             model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
             det_class, det_probs)
@@ -304,8 +347,19 @@ def train():
         viz_summary = sess.run(
             model.viz_op, feed_dict={model.image_to_show: image_per_batch})
 
+        def visualize_features(filters):
+          filter_shape = np.shape(filters)
+          padded_filters = np.pad(filters, ((0, 0), (3, 3), (3, 3), (0, 0)), 'constant', constant_values=(0))
+          reshaped_filters = np.reshape(padded_filters,(filter_shape[0],28*32,16*82,1)) 
+          return reshaped_filters
+        processed_filters = visualize_features(filters)
+
+        viz_filters_summary = sess.run(
+            model.viz_filt_op, feed_dict={model.filters_to_show: processed_filters})
+
         summary_writer.add_summary(summary_str, step)
         summary_writer.add_summary(viz_summary, step)
+        summary_writer.add_summary(viz_filters_summary, step)
         summary_writer.flush()
 
         print ('conf_loss: {}, bbox_loss: {}, class_loss: {}'.

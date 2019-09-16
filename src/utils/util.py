@@ -5,6 +5,7 @@
 import numpy as np
 import time
 import tensorflow as tf
+import math
 
 def iou(box1, box2):
   """Compute the Intersection-Over-Union of two given boxes.
@@ -51,6 +52,8 @@ def batch_iou(boxes, box):
   )
   inter = lr*tb
   union = boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter
+  if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter:
+    print("IOU", inter, union)
   return inter/union
 
 def nms(boxes, probs, threshold):
@@ -170,12 +173,12 @@ def bbox_transform(bbox):
   """
   with tf.variable_scope('bbox_transform') as scope:
     cx, cy, w, h = bbox[0:4]
-    out_box = [[]]*12
+    out_box = [[]]*8
     out_box[0] = cx-w/2
     out_box[1] = cy-h/2
     out_box[2] = cx+w/2
     out_box[3] = cy+h/2
-    out_box[4:12] = bbox[4:12]
+    out_box[4:8] = bbox[4:8]
   return out_box
 
 def bbox_transform2(bbox):
@@ -201,8 +204,8 @@ def bbox_transform_inv(bbox):
   for numpy array or list of tensors.
   """
   with tf.variable_scope('bbox_transform_inv') as scope:
-    out_box = [[]]*12
-    xmin, ymin, xmax, ymax, out_box[4], out_box[5], out_box[6], out_box[7], out_box[8], out_box[9], out_box[10], out_box[11] = bbox
+    out_box = [[]]*8
+    xmin, ymin, xmax, ymax, out_box[4], out_box[5], out_box[6], out_box[7] = bbox
 
     width       = xmax - xmin + 1.0
     height      = ymax - ymin + 1.0
@@ -217,31 +220,15 @@ def bbox_transform_inv2(bbox):
   for numpy array or list of tensors.
   """
   with tf.variable_scope('bbox_transform_inv2') as scope:
-    xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2 = bbox
     out_box = [[]]*8
+    xmin, ymin, xmax, ymax, out_box[4], out_box[5], out_box[6], out_box[7] = bbox
 
-    width1       = xmax1 - xmin1
-    height1      = ymax1 - ymin1
-    if height1 % 2 != 0:
-        height1 +=1
-    if width1 % 2 != 0:
-        width1 +=1
-    out_box[0]  = xmin1 + 0.5*width1 
-    out_box[1]  = ymin1 + 0.5*height1
-    out_box[2]  = width1
-    out_box[3]  = height1
-
-    width2       = xmax2 - xmin2
-    height2      = ymax2 - ymin2
-    if height2 % 2 != 0:
-        height2 +=1
-    if width2 % 2 != 0:
-        width2 +=1
-    out_box[4]  = xmin2 + 0.5*width2 
-    out_box[5]  = ymin2 + 0.5*height2
-    out_box[6]  = width2
-    out_box[7]  = height2
-
+    width       = xmax - xmin
+    height      = ymax - ymin
+    out_box[0]  = xmin + 0.5*width 
+    out_box[1]  = ymin + 0.5*height
+    out_box[2]  = width
+    out_box[3]  = height
   return out_box
 
 class Timer(object):

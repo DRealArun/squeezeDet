@@ -10,6 +10,7 @@ from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
 from utils.util import iou, batch_iou
+import math
 
 class imdb(object):
   """Image database."""
@@ -96,6 +97,101 @@ class imdb(object):
 
     return images, scales
 
+  def get_perpendicular_distance(self, pt1, m, pt2):
+    pt1_x, pt1_y = pt1 #line
+    pt2_x, pt2_y = pt2 #point
+    c = pt1_y - (m*pt1_x)
+    # Ax+By+C=0 -> y=mx+c -> y-mx-c=0 -> -mx+y-c=0 -> A = -m, B=1, C=-c
+    # perpendicular distance = |A*x2 + B*y2 + C| /sqrt((A**2+B**2))
+    A = -m
+    B = 1
+    C = -c
+    offset = abs((A*pt2_x + B*pt2_y + C))/((A**2+B**2)**(0.5))
+    return offset
+
+  def get_intersecting_point_new(self, vert_hor, eq1, pt, m):
+      pt_x, pt_y = pt
+      c = pt_y - (m*pt_x)
+      if vert_hor == "vert":
+          x_cor = eq1
+          y_cor = (m*x_cor) + c
+      else:
+          y_cor = eq1
+          x_cor = (y_cor - c)/m
+      return (x_cor, y_cor)
+
+  def decode_parameterization(self, mask_vector):
+    center_x, center_y, width, height, off1, off2, off3, off4 = mask_vector
+    cos = math.cos(math.radians(45))
+    sin = math.cos(math.radians(45))
+    pts = [0,0,0,0]
+    pts[0] = (center_x-off1*cos, center_y-off1*sin)
+    pts[1] = (center_x-off2*cos, center_y+off2*sin)
+    pts[2] = (center_x+off3*cos, center_y+off3*sin)
+    pts[3] = (center_x+off4*cos, center_y-off4*sin)
+    xmin = center_x - (0.5*width)
+    xmax = center_x + (0.5*width)
+    ymin = center_y - (0.5*height)
+    ymax = center_y + (0.5*height)
+    points = [pts[0], pts[1], pts[1], pts[2], pts[2], pts[3], pts[3], pts[0]]
+    eq1s = [xmin, xmin, ymax, ymax, xmax, xmax, ymin, ymin]
+    vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
+    m1 = (pts[2][1]-pts[0][1])/(pts[2][0]-pts[0][0])
+    m2 = (pts[3][1]-pts[1][1])/(pts[3][0]-pts[1][0])
+    ms = [-1/m1, -1/m2, -1/m2, -1/m1, -1/m1, -1/m2, -1/m2, -1/m1]
+    intersecting_pts = []
+    for eq1, pt, vert_hor, m in zip(eq1s, points, vert_or_hors, ms):
+        op_pt = self.get_intersecting_point_new(vert_hor, eq1, pt, m)
+        intersecting_pts.append(op_pt)
+    return intersecting_pts
+
+  def get_8_point_mask(self, polygon, height, width):
+    outline = np.array(polygon)
+    rrr, ccc = outline[:,1], outline[:,0]
+    rr = []
+    cc = []
+    for r in rrr:
+      if r < 0:
+        r = 0
+      if r > height:
+        r = height
+      rr.append(r)
+    for c in ccc:
+      if c < 0:
+        c = 0
+      if c > width:
+        c = width
+      cc.append(c)
+    rr = np.array(rr)
+    cc = np.array(cc)
+    sum_values = cc + rr
+    diff_values = cc - rr
+    xmin = max(min(cc), 0)
+    xmax = min(max(cc), width)
+    ymin = max(min(rr), 0)
+    ymax = min(max(rr), height)
+    width       = xmax - xmin
+    height      = ymax - ymin
+    center_x  = xmin + 0.5*width 
+    center_y  = ymin + 0.5*height
+    center = (center_x, center_y)
+    min_sum_indices = np.where(sum_values == np.amin(sum_values))[0][0]
+    pt_p_min = (cc[min_sum_indices], rr[min_sum_indices])
+    max_sum_indices = np.where(sum_values == np.amax(sum_values))[0][0]
+    pt_p_max = (cc[max_sum_indices], rr[max_sum_indices])
+    min_diff_indices = np.where(diff_values == np.amin(diff_values))[0][0]
+    pt_n_min = (cc[min_diff_indices], rr[min_diff_indices])
+    max_diff_indices = np.where(diff_values == np.amax(diff_values))[0][0]
+    pt_n_max = (cc[max_diff_indices], rr[max_diff_indices])
+    pts = [pt_p_min, pt_n_min, pt_p_max, pt_n_max]
+    ms = [-1, +1, -1,  +1] #Slope of the tangents
+    offsets = []
+    for pt, m in zip(pts, ms):
+      op_pt = self.get_perpendicular_distance(pt, m, center)
+      offsets.append(op_pt)
+    mask_vector = [center_x, center_y, width, height, offsets[0], offsets[1], offsets[2], offsets[3]]
+    return mask_vector
+
   def read_batch(self, shuffle=True):
     """Read a batch of image and bounding box annotations.
     Args:
@@ -140,6 +236,11 @@ class imdb(object):
 
     for idx in batch_idx:
       # load the image
+      try:
+        Image.open(self._image_path_at(idx)).tobytes()
+      except IOError:
+        print('Detect error img %s' % self._image_path_at(idx))
+        continue
       im = cv2.imread(self._image_path_at(idx))
       if im is None:
         print("\n\nCorrupt image found: ", self._image_path_at(idx))
@@ -150,25 +251,29 @@ class imdb(object):
       orig_h, orig_w, _ = [float(v) for v in im.shape]
 
       # load annotations
-      label_per_batch.append([b[12] for b in self._rois[idx][:]])
-      gt_bbox = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]] for b in self._rois[idx][:]])
+      label_per_batch.append([b[4] for b in self._rois[idx][:]])
+      # gt_bbox = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]] for b in self._rois[idx][:]])
+      gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
+      polygons = [b[2] for b in self._poly[idx][:]]
+      flag1 = False
+      flag2 = False
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
             'mc.DRIFT_X and mc.DRIFT_Y must be >= 0'
 
         if mc.DRIFT_X > 0 or mc.DRIFT_Y > 0:
           # Ensures that gt boundibg box is not cutted out of the image
-          max_drift_x = min(gt_bbox[:, 0] - gt_bbox[:, 2]/2.0+1)
-          max_drift_y = min(gt_bbox[:, 1] - gt_bbox[:, 3]/2.0+1)
+          max_drift_x = min(gt_bbox_pre[:, 0] - gt_bbox_pre[:, 2]/2.0+1)
+          max_drift_y = min(gt_bbox_pre[:, 1] - gt_bbox_pre[:, 3]/2.0+1)
           assert max_drift_x >= 0 and max_drift_y >= 0, 'bbox out of image'
 
           dy = np.random.randint(-mc.DRIFT_Y, min(mc.DRIFT_Y+1, max_drift_y))
           dx = np.random.randint(-mc.DRIFT_X, min(mc.DRIFT_X+1, max_drift_x))
 
           # shift bbox
-          gt_bbox[:, 0] = gt_bbox[:, 0] - dx
-          gt_bbox[:, 1] = gt_bbox[:, 1] - dy
-
+          gt_bbox_pre[:, 0] = gt_bbox_pre[:, 0] - dx
+          gt_bbox_pre[:, 1] = gt_bbox_pre[:, 1] - dy
+          flag1 = True
           # distort image
           orig_h -= dy
           orig_w -= dx
@@ -183,24 +288,14 @@ class imdb(object):
         # # Flip image with 50% probability
         if np.random.randint(2) > 0.5:
           im = im[:, ::-1, :]
-          gt_bbox[:, 0] = orig_w - 1 - gt_bbox[:, 0]
+          flag2 = True
+          gt_bbox_pre[:, 0] = orig_w - 1 - gt_bbox_pre[:, 0]
+          # gt_bbox_pre[:, 4] = orig_w - 1 - gt_bbox_pre[:, 4]
+          # gt_bbox_pre[:, 6] = orig_w - 1 - gt_bbox_pre[:, 6]
+          # gt_bbox_pre[:, 8] = orig_w - 1 - gt_bbox_pre[:, 8]
+          # gt_bbox_pre[:, 10] = orig_w - 1 - gt_bbox_pre[:, 10]
 
-          temp = gt_bbox[:, 4]
-          gt_bbox[:, 4] = gt_bbox[:, 9]
-          gt_bbox[:, 9] = temp
-
-          temp = gt_bbox[:, 5]
-          gt_bbox[:, 5] = gt_bbox[:, 8]
-          gt_bbox[:, 8] = temp
-          
-          temp = gt_bbox[:, 2] - 1 - gt_bbox[:, 6]
-          gt_bbox[:, 6] = gt_bbox[:, 2] - 1 - gt_bbox[:, 7]
-          gt_bbox[:, 7] = temp
-
-          temp = gt_bbox[:, 2] - 1 - gt_bbox[:, 10] 
-          gt_bbox[:, 10] = gt_bbox[:, 2] - 1 - gt_bbox[:, 11]
-          gt_bbox[:, 11] = temp
-
+      temp = list(polygons)
       # scale image
       im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
       image_per_batch.append(im)
@@ -208,12 +303,42 @@ class imdb(object):
       # scale annotation
       x_scale = mc.IMAGE_WIDTH/orig_w
       y_scale = mc.IMAGE_HEIGHT/orig_h
-      gt_bbox[:, 0:4:2] = (np.round(gt_bbox[:, 0:4:2]*x_scale)).astype(np.int)
-      gt_bbox[:, 1:4:2] = (np.round(gt_bbox[:, 1:4:2]*y_scale)).astype(np.int)
-      # gt_bbox[:, 4:6:1] = (np.round(gt_bbox[:, 4:6:1]*y_scale)).astype(np.int)
+      gt_bbox_pre[:, 0:4:2] = (gt_bbox_pre[:, 0:4:2]*x_scale)
+      gt_bbox_pre[:, 1:4:2] = (gt_bbox_pre[:, 1:4:2]*y_scale)
+      for m in range(len(polygons)):
+        # for n in range(len(polygons[m])):
+        #   if flag1:
+        #     polygons[m][n][0] = polygons[m][n][0] - dx
+        #     polygons[m][n][1] = polygons[m][n][1] - dy
+        #   if flag2:
+        #     polygons[m][n][0] = orig_w - 1 - polygons[m][n][0]
+        #   polygons[m][n][0] = polygons[m][n][0]*x_scale
+        #   polygons[m][n][1] = polygons[m][n][1]*y_scale
+        poly = np.array(polygons[m])
+        poly[:,0] = poly[:,0]*x_scale
+        poly[:,1] = poly[:,1]*y_scale
+        polygons[m] = poly
+      flag1 = False
+      flag2 = False
       # gt_bbox[:, 6:8:1] = (np.round(gt_bbox[:, 6:8:1]*x_scale)).astype(np.int)
       # gt_bbox[:, 8:10:1] = (np.round(gt_bbox[:, 8:10:1]*y_scale)).astype(np.int)
       # gt_bbox[:, 10:12:1] =(np.round(gt_bbox[:, 10:12:1]*x_scale)).astype(np.int)
+
+      # Transform the bounding box to offset mode
+      gt_bbox = []
+      for o in range(len(polygons)):
+        polygon = polygons[o]
+        mask_vector = self.get_8_point_mask(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
+        center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
+        if width == 0 or height == 0:
+          print("Error width and height", width, height, gt_bbox_pre[o][2], gt_bbox_pre[o][3], center_x, center_y, gt_bbox_pre[o][0], gt_bbox_pre[o][1], idx)
+        assert not (of1 < 0 or of2 < 0 or of3 < 0 or of4 < 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
+        bbox = mask_vector
+        points = self.decode_parameterization(bbox)
+        points = np.round(points)
+        points = np.array(points, 'int32')
+        assert not (points[0][1] > points[1][1] or points[2][0] > points[3][0] or points[5][1] > points[4][1] or points[7][0] > points[6][0]), "\n\n Error in extraction:"+str(points)
+        gt_bbox.append(bbox)
       bbox_per_batch.append(gt_bbox)
 
       aidx_per_image, delta_per_image = [], []
@@ -250,26 +375,20 @@ class imdb(object):
               aidx = dist_idx
               break
 
-        box_cx, box_cy, box_w, box_h, of1, of2, of3, of4, of5, of6, of7, of8 = gt_bbox[i]
-        delta = [0]*12
+        box_cx, box_cy, box_w, box_h, of1, of2, of3, of4 = gt_bbox[i]
+        delta = [0]*8
         EPSILON = 1e-8
         delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
         delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
         delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
         delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
-        delta[4] = np.log((of1 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
-        delta[5] = np.log((of2 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+        anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
+        delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)
+        delta[5] = np.log((of2 + EPSILON)/anchor_diagonal)
 
-        delta[6] = np.log((of3 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-        delta[7] = np.log((of4 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-        
-        delta[8] = np.log((of5 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
-        delta[9] = np.log((of6 + EPSILON)/mc.ANCHOR_BOX[aidx][3])
-        
-        delta[10] = np.log((of7 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-        delta[11] = np.log((of8 + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-        
+        delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
+        delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
 
         aidx_per_image.append(aidx)
         delta_per_image.append(delta)
