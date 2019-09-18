@@ -394,7 +394,7 @@ class kitti_instance(imdb):
           class_name = instance['label']
           params, modified_name = self.assureSingleInstance(class_name)
           if params != None and params.hasInstances and modified_name in self.permitted_classes:
-            polygon = np.array(instance['polygon'])
+            polygon = np.array(instance['polygon'], dtype=np.float)
             cls = self._class_to_idx[modified_name]
             vector = self.get_8_point_mask_parameterization(polygon, imgHeight, imgWidth) 
             xmin, ymin, xmax, ymax, pt1, pt2, pt3, pt4, cx, cy, w, h = vector

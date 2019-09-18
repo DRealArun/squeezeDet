@@ -72,11 +72,11 @@ class SqueezeDetPlus(ModelSkeleton):
     self.filters = fire10
     # fire11 = self._fire_layer(
     #     'fire11', fire10, s1x1=384, e1x1=256, e3x3=256, freeze=False)
-    dropout11 = tf.nn.dropout(fire10, self.keep_prob, name='drop11')
+    # dropout11 = tf.nn.dropout(fire10, self.keep_prob, name='drop11')
     num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 8)
     print("Number of classes:", mc.CLASSES, num_output)
     self.preds = self._conv_layer(
-        'conv12', dropout11, filters=num_output, size=3, stride=1,
+        'conv12', fire10, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)
 
   def _fire_layer(self, layer_name, inputs, s1x1, e1x1, e3x3, stddev=0.01,

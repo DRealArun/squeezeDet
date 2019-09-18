@@ -145,33 +145,38 @@ class imdb(object):
         intersecting_pts.append(op_pt)
     return intersecting_pts
 
-  def get_8_point_mask(self, polygon, height, width):
+  def get_8_point_mask(self, polygon, h, w):
     outline = np.array(polygon)
-    rrr, ccc = outline[:,1], outline[:,0]
-    rr = []
-    cc = []
-    for r in rrr:
-      if r < 0:
-        r = 0
-      if r > height:
-        r = height
-      rr.append(r)
-    for c in ccc:
-      if c < 0:
-        c = 0
-      if c > width:
-        c = width
-      cc.append(c)
+    rr, cc = outline[:,1], outline[:,0]
+    # rrr, ccc = outline[:,1], outline[:,0]
+    # rr = []
+    # cc = []
+    # for r in rrr:
+    #   if r < 0:
+    #     r = 0
+    #   if r > h:
+    #     r = h
+    #   rr.append(r)
+    # for c in ccc:
+    #   if c < 0:
+    #     c = 0
+    #   if c > w:
+    #     c = w
+    #   cc.append(c)
     rr = np.array(rr)
     cc = np.array(cc)
     sum_values = cc + rr
     diff_values = cc - rr
     xmin = max(min(cc), 0)
-    xmax = min(max(cc), width)
+    xmax = min(max(cc), w)
     ymin = max(min(rr), 0)
-    ymax = min(max(rr), height)
+    ymax = min(max(rr), h)
     width       = xmax - xmin
     height      = ymax - ymin
+    if width <= 0:
+      print("Max and min x values", xmax, xmin)
+    if height <= 0:
+      print("Max and min y values", ymax, ymin)
     center_x  = xmin + 0.5*width 
     center_y  = ymin + 0.5*height
     center = (center_x, center_y)
@@ -306,15 +311,12 @@ class imdb(object):
       gt_bbox_pre[:, 0:4:2] = (gt_bbox_pre[:, 0:4:2]*x_scale)
       gt_bbox_pre[:, 1:4:2] = (gt_bbox_pre[:, 1:4:2]*y_scale)
       for m in range(len(polygons)):
-        # for n in range(len(polygons[m])):
-        #   if flag1:
-        #     polygons[m][n][0] = polygons[m][n][0] - dx
-        #     polygons[m][n][1] = polygons[m][n][1] - dy
-        #   if flag2:
-        #     polygons[m][n][0] = orig_w - 1 - polygons[m][n][0]
-        #   polygons[m][n][0] = polygons[m][n][0]*x_scale
-        #   polygons[m][n][1] = polygons[m][n][1]*y_scale
         poly = np.array(polygons[m])
+        if flag1:
+          poly[:,0] = poly[:,0] - dx
+          poly[:,1] = poly[:,1] - dy
+        if flag2:
+          poly[:,0] = orig_w - 1 - poly[:,0]
         poly[:,0] = poly[:,0]*x_scale
         poly[:,1] = poly[:,1]*y_scale
         polygons[m] = poly
@@ -337,7 +339,7 @@ class imdb(object):
         points = self.decode_parameterization(bbox)
         points = np.round(points)
         points = np.array(points, 'int32')
-        assert not (points[0][1] > points[1][1] or points[2][0] > points[3][0] or points[5][1] > points[4][1] or points[7][0] > points[6][0]), "\n\n Error in extraction:"+str(points)
+        assert not (points[0][1] - points[1][1] > 1 or points[2][0] - points[3][0] > 1 or points[5][1] - points[4][1] > 1 or points[7][0] - points[6][0] > 1), "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(bbox)
         gt_bbox.append(bbox)
       bbox_per_batch.append(gt_bbox)
 

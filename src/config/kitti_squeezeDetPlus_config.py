@@ -31,7 +31,7 @@ def kitti_squeezeDetPlus_config():
   mc.PROB_THRESH           = 0.005
   mc.TOP_N_DETECTION       = 64
 
-  mc.DATA_AUGMENTATION     = False
+  mc.DATA_AUGMENTATION     = True
   mc.DRIFT_X               = 150
   mc.DRIFT_Y               = 100
   mc.EXCLUDE_HARD_EXAMPLES = False
