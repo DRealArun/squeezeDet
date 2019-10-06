@@ -95,6 +95,9 @@ class ModelSkeleton:
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
+    # Tensor used to represent the fg strengths
+    self.ph_fg_strength = tf.placeholder(
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 1], name='fg_strength')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -105,21 +108,22 @@ class ModelSkeleton:
     self.FIFOQueue = tf.FIFOQueue(
         capacity=mc.QUEUE_CAPACITY,
         dtypes=[tf.float32, tf.float32, tf.float32, 
-                tf.float32, tf.float32],
+                tf.float32, tf.float32, tf.float32],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
                 [mc.ANCHORS, 8],
                 [mc.ANCHORS, 8],
-                [mc.ANCHORS, mc.CLASSES]],
+                [mc.ANCHORS, mc.CLASSES],
+                [mc.ANCHORS, 1]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
         [self.ph_image_input, self.ph_input_mask,
-         self.ph_box_delta_input, self.ph_box_input, self.ph_labels]
+         self.ph_box_delta_input, self.ph_box_input, self.ph_labels, self.ph_fg_strength]
     )
 
     self.image_input, self.input_mask, self.box_delta_input, \
-        self.box_input, self.labels = tf.train.batch(
+        self.box_input, self.labels, self.fg_strength = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
 
@@ -171,10 +175,20 @@ class ModelSkeleton:
       )
 
       # bbox_delta
+      num_box_values = (mc.ANCHOR_PER_GRID*8)+num_confidence_scores
       self.pred_box_delta = tf.reshape(
-          preds[:, :, :, num_confidence_scores:],
+          preds[:, :, :, num_confidence_scores:num_box_values],
           [mc.BATCH_SIZE, mc.ANCHORS, 8],
           name='bbox_delta'
+      )
+
+      # strength regression
+      self.pred_fg_strength = tf.sigmoid(
+          tf.reshape(
+              preds[:, :, :, num_box_values:],
+              [mc.BATCH_SIZE, mc.ANCHORS]
+          ),
+          name='pred_fg_strength_score'
       )
 
       # number of object. Used to normalize bbox and classification loss
@@ -345,6 +359,20 @@ class ModelSkeleton:
           name='bbox_loss'
       )
       tf.add_to_collection('losses', self.bbox_loss)
+
+    with tf.variable_scope('fg_strength_regression') as scope:
+      input_mask = tf.reshape(self.input_mask, [mc.BATCH_SIZE, mc.ANCHORS])
+      reshaped_strength = tf.reshape(self.fg_strength, [mc.BATCH_SIZE, mc.ANCHORS])
+      self.strength_loss = tf.reduce_mean(
+          tf.reduce_sum(
+              tf.square((reshaped_strength - self.pred_fg_strength)) 
+              * (input_mask*mc.LOSS_COEF_CONF_POS/self.num_objects
+                 +(1-input_mask)*mc.LOSS_COEF_CONF_NEG/(mc.ANCHORS-self.num_objects)),
+              reduction_indices=[1]
+          ),
+          name='strength_loss'
+      )
+      tf.add_to_collection('losses', self.strength_loss)
 
     # add above losses as well as weight decay losses to form the total loss
     self.loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
@@ -570,6 +598,99 @@ class ModelSkeleton:
       conv = tf.nn.conv2d(
           inputs, kernel, [1, stride, stride, 1], padding=padding,
           name='convolution')
+      conv_bias = tf.nn.bias_add(conv, biases, name='bias_add')
+  
+      if relu:
+        out = tf.nn.relu(conv_bias, 'relu')
+      else:
+        out = conv_bias
+
+      self.model_size_counter.append(
+          (layer_name, (1+size*size*int(channels))*filters)
+      )
+      out_shape = out.get_shape().as_list()
+      num_flops = \
+        (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
+      if relu:
+        num_flops += 2*filters*out_shape[1]*out_shape[2]
+      self.flop_counter.append((layer_name, num_flops))
+
+      self.activation_counter.append(
+          (layer_name, out_shape[1]*out_shape[2]*out_shape[3])
+      )
+
+      return out
+
+  def _conv_layer_atrous(
+      self, layer_name, inputs, filters, size, rate, padding='SAME',
+      freeze=False, xavier=False, relu=True, stddev=0.001):
+    """Convolutional layer atrous operation constructor.
+
+    Args:
+      layer_name: layer name.
+      inputs: input tensor
+      filters: number of output filters.
+      size: kernel size.
+      stride: stride
+      padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
+      freeze: if true, then do not train the parameters in this layer.
+      xavier: whether to use xavier weight initializer or not.
+      relu: whether to use relu or not.
+      stddev: standard deviation used for random weight initializer.
+    Returns:
+      A convolutional layer operation.
+    """
+
+    mc = self.mc
+    use_pretrained_param = False
+    if mc.LOAD_PRETRAINED_MODEL:
+      cw = self.caffemodel_weight
+      if layer_name in cw:
+        kernel_val = np.transpose(cw[layer_name][0], [2,3,1,0])
+        bias_val = cw[layer_name][1]
+        # check the shape
+        if (kernel_val.shape == 
+              (size, size, inputs.get_shape().as_list()[-1], filters)) \
+           and (bias_val.shape == (filters, )):
+          use_pretrained_param = True
+        else:
+          print ('Shape of the pretrained parameter of {} does not match, '
+              'use randomly initialized parameter'.format(layer_name))
+      else:
+        print ('Cannot find {} in the pretrained model. Use randomly initialized '
+               'parameters'.format(layer_name))
+
+    if mc.DEBUG_MODE:
+      print('Input tensor shape to {}: {}'.format(layer_name, inputs.get_shape()))
+
+    with tf.variable_scope(layer_name) as scope:
+      channels = inputs.get_shape()[3]
+
+      # re-order the caffe kernel with shape [out, in, h, w] -> tf kernel with
+      # shape [h, w, in, out]
+      if use_pretrained_param:
+        if mc.DEBUG_MODE:
+          print ('Using pretrained model for {}'.format(layer_name))
+        kernel_init = tf.constant(kernel_val , dtype=tf.float32)
+        bias_init = tf.constant(bias_val, dtype=tf.float32)
+      elif xavier:
+        kernel_init = tf.contrib.layers.xavier_initializer_conv2d()
+        bias_init = tf.constant_initializer(0.0)
+      else:
+        kernel_init = tf.truncated_normal_initializer(
+            stddev=stddev, dtype=tf.float32)
+        bias_init = tf.constant_initializer(0.0)
+
+      kernel = _variable_with_weight_decay(
+          'kernels', shape=[size, size, int(channels), filters],
+          wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze))
+
+      biases = _variable_on_device('biases', [filters], bias_init, 
+                                trainable=(not freeze))
+      self.model_params += [kernel, biases]
+
+      conv = tf.nn.atrous_conv2d(inputs, kernel, rate, padding=padding,
+          name='convolution_atrous')
       conv_bias = tf.nn.bias_add(conv, biases, name='bias_add')
   
       if relu:

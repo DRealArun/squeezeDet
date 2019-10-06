@@ -12,6 +12,7 @@ from dataset.imdb import imdb
 from utils.util import bbox_transform_inv, batch_iou
 import imageio as sp
 import json
+from utils.util import iou, batch_iou
 
 from collections import namedtuple
 Label = namedtuple( 'Label' , [
@@ -112,6 +113,8 @@ class kitti_instance(imdb):
     self.trainId2label   = { label.trainId : label for label in reversed(self.labels) }
 
     self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']
+    # self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'road', 'sidewalk', 'building', 'wall', 'fence', 'pole']
+    # self.permitted_classes = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole']
     # self._rois = self._load_kitti_instance_annotation() #KITTI
     self._rois, self._poly = self._load_cityscape_8_point_annotation() #CITYSCAPE
 
@@ -379,6 +382,7 @@ class kitti_instance(imdb):
   def _load_cityscape_8_point_annotation(self):
     idx2annotation = {}
     idx2polygons = {}
+    # idx2overlaps = {}
     rejected_image_ids = []
     for index in self._image_idx:
       bboxes = []
@@ -393,7 +397,8 @@ class kitti_instance(imdb):
         for instance in instances:
           class_name = instance['label']
           params, modified_name = self.assureSingleInstance(class_name)
-          if params != None and params.hasInstances and modified_name in self.permitted_classes:
+          # if params != None and params.hasInstances and modified_name in self.permitted_classes:
+          if params != None and modified_name in self.permitted_classes:
             polygon = np.array(instance['polygon'], dtype=np.float)
             cls = self._class_to_idx[modified_name]
             vector = self.get_8_point_mask_parameterization(polygon, imgHeight, imgWidth) 
@@ -414,6 +419,14 @@ class kitti_instance(imdb):
       else:
         idx2annotation[index] = bboxes
         idx2polygons[index] = polygons
+        # overlap_indices = []
+        # for idx, box in enumerate(bboxes):
+        #   overlaps = batch_iou(bboxes, box)
+        #   overlaps = np.array(overlaps)
+        #   valid_overlaps = overlaps[overlaps >= 0.2]
+        #   overlap_indices.append(valid_overlaps)
+        # idx2overlaps[index] = overlap_indices
+
     for id_val in rejected_image_ids:
       self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.
     return idx2annotation, idx2polygons

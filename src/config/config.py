@@ -31,6 +31,8 @@ def base_model_config(dataset='PASCAL_VOC'):
     # cfg.CLASS_NAMES = ('car',)
   elif cfg.DATASET == 'CITYSCAPE':
     cfg.CLASS_NAMES = ('person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle')
+    # cfg.CLASS_NAMES = ('person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'road', 'sidewalk', 'building', 'wall', 'fence', 'pole')
+    # cfg.CLASS_NAMES = ('road', 'sidewalk', 'building', 'wall', 'fence', 'pole')
 
 
   # number of categories to classify

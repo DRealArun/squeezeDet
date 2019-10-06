@@ -11,6 +11,159 @@ import cv2
 import numpy as np
 from utils.util import iou, batch_iou
 import math
+import collections
+
+class Node_container(object):
+    def __init__(self, connectivity_vector, id_val):
+        self.connectivity_vector = connectivity_vector
+        self.strength = -1
+        self.id = id_val
+        
+    def set_strength(self, value):
+        if value > self.strength:
+            self.strength = value
+    
+    def get_strength(self):
+        return self.strength
+    
+    def get_id(self):
+        return self.id
+    
+    def get_child_ids(self):
+        return np.where(self.connectivity_vector == 'bg')
+    
+def get_base_node_config(connectivity_matrix):
+    base_node_ids = []
+    for i, vector in enumerate(connectivity_matrix):
+        unique, counts = np.unique(vector, return_counts=True)
+        occurances = dict(zip(unique, counts))
+        if '0' in occurances.keys():
+            num_of_zeros = occurances['0']
+        else:
+            num_of_zeros = 0
+        if 'fg' not in vector and num_of_zeros != len(vector)-1:
+            base_node_ids.append(i)
+    return base_node_ids
+
+def get_end_node_config(connectivity_matrix):
+    end_node_ids = []
+    for i, vector in enumerate(connectivity_matrix):
+        unique, counts = np.unique(vector, return_counts=True)
+        occurances = dict(zip(unique, counts))
+        if '0' in occurances.keys():
+            num_of_zeros = occurances['0']
+        else:
+            num_of_zeros = 0
+        if 'bg' not in vector and num_of_zeros != len(vector)-1:
+            end_node_ids.append(i)
+    return end_node_ids
+
+def get_disconnected_node_config(connectivity_matrix):
+    disconnected_node_ids = []
+    for i, vector in enumerate(connectivity_matrix):
+        unique, counts = np.unique(vector, return_counts=True)
+        occurances = dict(zip(unique, counts))
+        if '0' in occurances.keys():
+            num_of_zeros = occurances['0']
+        else:
+            num_of_zeros = 0
+        if num_of_zeros == len(vector)-1:
+            disconnected_node_ids.append(i)
+    return disconnected_node_ids
+
+def print_network_dictionary(net_dictionary):
+    for key in net_dictionary.keys():
+        curr_node = net_dictionary[key]
+        print("Strength of node ", key, " is ", curr_node.get_strength())
+        
+def sort_dict_by_strength(net_dictionary):
+    sorted_nodes = sorted(net_dictionary.items(), key=lambda kv: kv[1].get_strength())
+    sorted_dict = collections.OrderedDict(sorted_nodes)
+    return sorted_dict
+
+def resolve_node_strengths(connectivity_matrix):
+    # print(connectivity_matrix)
+    num_nodes = len(connectivity_matrix)
+    base_node_ids = get_base_node_config(connectivity_matrix)
+    num_base_nodes = len(base_node_ids)
+    # print("Number of base nodes:", num_base_nodes, base_node_ids)
+    end_node_ids = get_end_node_config(connectivity_matrix)
+    num_end_nodes = len(end_node_ids)
+    # print("Number of end nodes:", num_end_nodes, end_node_ids)
+    disconnected_node_ids = get_disconnected_node_config(connectivity_matrix)
+    num_disconnected_nodes = len(disconnected_node_ids)
+    # print("Number of disconnected nodes:", num_disconnected_nodes, disconnected_node_ids)
+
+    node_list = []
+    for base_id in base_node_ids:
+        base_node = Node_container(connectivity_matrix[base_id], base_id)
+        base_node.set_strength(0.)
+        node_list.append(base_node)
+
+    for disconnect_id in disconnected_node_ids:
+        disconnected_node = Node_container(connectivity_matrix[disconnect_id], disconnect_id)
+        disconnected_node.set_strength(1.0)
+        node_list.append(disconnected_node)
+
+    traversed_dict = {}
+    if (num_base_nodes+num_disconnected_nodes) != num_nodes: #if this is true then it implies that num_base_nodes and num_end_nodes = 0, hence all nodes are disconnected
+      strength_step = 1.0/(num_nodes-num_base_nodes-num_disconnected_nodes)
+      # print("Strength_increment:",strength_step)
+      while len(node_list) != 0:
+          curr_node = node_list.pop(0)
+          traversed_dict[curr_node.get_id()] = curr_node
+          child_ids = curr_node.get_child_ids()[0]
+          for child_id in child_ids:
+              if child_id not in traversed_dict:
+                  child_node = Node_container(connectivity_matrix[child_id], child_id)
+                  if child_id not in end_node_ids:
+                      child_node.set_strength(curr_node.get_strength()+strength_step)
+                  else:
+                      child_node.set_strength(1.0)
+                  node_list.append(child_node)
+              else:
+                  if child_id not in end_node_ids:
+                      child_node = traversed_dict[child_id]
+                      child_node.set_strength(curr_node.get_strength()+strength_step)
+    else:
+      # Since all nodes are disconnected, simply add them to the dictionary
+      while len(node_list) != 0:
+          curr_node = node_list.pop(0)
+          traversed_dict[curr_node.get_id()] = curr_node
+
+
+    return traversed_dict
+
+def batch_iou_mask(masks, mask):
+    """Compute the Intersection-Over-Union of a batch of masks with another
+    mask.
+
+    Args:
+    masks: batch of binary masks
+    mask: a single array mask
+    Returns:
+    ious: array of a float number in range [0, 1].
+    """
+    num_masks = np.shape(masks)
+    masks_reshaped = np.reshape(masks, (num_masks[0], num_masks[1]*num_masks[2]))
+    mask_reshaped = np.reshape(mask, (num_masks[1]*num_masks[2]))
+#     print(np.shape(np.bitwise_and(masks_reshaped, mask_reshaped)))
+    inter = np.sum(np.bitwise_and(masks_reshaped, mask_reshaped), axis=1)
+    union = np.sum(np.bitwise_or(masks_reshaped, mask_reshaped), axis=1)
+    if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter:
+        print("IOU", inter, union)
+    return inter/union
+
+def find_overlaps_masks(id_val, object_list, exclude_mask):
+    # Takes complement of exclude mask and then only tries to find overlap with the included objects.
+    # Returns the overlapping objects with it.
+    search_space = object_list #need to handle excluded mask
+#     print(search_space)
+    candidate_mask = object_list[id_val]
+    overlaps = batch_iou_mask(search_space, candidate_mask)
+    indices = np.where(overlaps > 0.001)[0]
+#     print(id_val, overlaps)
+    return indices
 
 class imdb(object):
   """Image database."""
@@ -22,6 +175,7 @@ class imdb(object):
     self._image_idx = []
     self._data_root_path = []
     self._rois = {}
+    self._poly = {}
     self.mc = mc
 
     # batch reader
@@ -174,9 +328,9 @@ class imdb(object):
     width       = xmax - xmin
     height      = ymax - ymin
     if width <= 0:
-      print("Max and min x values", xmax, xmin)
+      print("Max and min x values", xmax, xmin, w)
     if height <= 0:
-      print("Max and min y values", ymax, ymin)
+      print("Max and min y values", ymax, ymin, h)
     center_x  = xmin + 0.5*width 
     center_y  = ymin + 0.5*height
     center = (center_x, center_y)
@@ -232,6 +386,7 @@ class imdb(object):
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
+    strength_per_batch = []
     if mc.DEBUG_MODE:
       avg_ious = 0.
       num_objects = 0.
@@ -239,7 +394,7 @@ class imdb(object):
       min_iou = 1.0
       num_zero_iou_obj = 0
 
-    for idx in batch_idx:
+    for img_ct, idx in enumerate(batch_idx):
       # load the image
       try:
         Image.open(self._image_path_at(idx)).tobytes()
@@ -328,12 +483,15 @@ class imdb(object):
 
       # Transform the bounding box to offset mode
       gt_bbox = []
+      actual_bin_masks = []
       for o in range(len(polygons)):
         polygon = polygons[o]
         mask_vector = self.get_8_point_mask(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
         center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
         if width == 0 or height == 0:
           print("Error width and height", width, height, gt_bbox_pre[o][2], gt_bbox_pre[o][3], center_x, center_y, gt_bbox_pre[o][0], gt_bbox_pre[o][1], idx)
+          # del label_per_batch[img_ct][o]
+          # continue #ONLY FOR COMPLETE SET OF MASKS
         assert not (of1 < 0 or of2 < 0 or of3 < 0 or of4 < 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
         bbox = mask_vector
         points = self.decode_parameterization(bbox)
@@ -341,14 +499,38 @@ class imdb(object):
         points = np.array(points, 'int32')
         assert not (points[0][1] - points[1][1] > 1 or points[2][0] - points[3][0] > 1 or points[5][1] - points[4][1] > 1 or points[7][0] - points[6][0] > 1), "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(bbox)
         gt_bbox.append(bbox)
+
+        drawing2 = np.zeros((mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3), np.uint8)
+        color = (255, 255, 255)
+        cv2.fillConvexPoly(drawing2, np.array(polygon, 'int32'), color)
+        gray2 = cv2.cvtColor(drawing2, cv2.COLOR_BGR2GRAY) # convert to grayscale
+        refined_mask_2 = gray2 / 255
+        refined_mask_2 = refined_mask_2.astype(np.uint8)
+        actual_bin_masks.append(refined_mask_2)
+
       bbox_per_batch.append(gt_bbox)
 
-      aidx_per_image, delta_per_image = [], []
+      num_objects = len(gt_bbox)
+      ct_matrix = np.ones((num_objects,num_objects)) * -1
+      ct_matrix = ct_matrix.astype(str)
+      np.fill_diagonal(ct_matrix, 'x')
+      for m in range(num_objects):
+  #         overlapping_objects = find_overlaps(i, np.array(box_proposals), np.zeros((len(box_proposals),), dtype=int)) # get a overlap contention mask which determines which objects need to be considered while finding the overlaps
+          overlapping_objects = find_overlaps_masks(m, np.array(actual_bin_masks), np.zeros((num_objects,), dtype=int)) # get a overlap contention mask which determines which objects need to be considered while finding the overlaps
+          for n in overlapping_objects:
+              if ct_matrix[m][n] == '-1.0':
+                  ct_matrix[m][n] = 'bg'
+                  ct_matrix[n][m] = 'fg'
+      refined_matrix = np.where(ct_matrix=='-1.0', 0, ct_matrix)
+      traversed_dictionary = resolve_node_strengths(refined_matrix)
+      sorted_dict = sort_dict_by_strength(traversed_dictionary)
+
+      aidx_per_image, delta_per_image, strength_per_image = [], [], []
       aidx_set = set()
       for i in range(len(gt_bbox)):
         encompassing_box = gt_bbox[i][0:4]
         overlaps = batch_iou(mc.ANCHOR_BOX, encompassing_box)
-
+        strength = sorted_dict[i].get_strength()
         aidx = len(mc.ANCHOR_BOX)
         for ov_idx in np.argsort(overlaps)[::-1]:
           if overlaps[ov_idx] <= 0:
@@ -394,9 +576,11 @@ class imdb(object):
 
         aidx_per_image.append(aidx)
         delta_per_image.append(delta)
+        strength_per_image.append(strength)
 
       delta_per_batch.append(delta_per_image)
       aidx_per_batch.append(aidx_per_image)
+      strength_per_batch.append(strength_per_image)
 
     if mc.DEBUG_MODE:
       print ('max iou: {}'.format(max_iou))
@@ -406,7 +590,7 @@ class imdb(object):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, strength_per_batch
 
   def evaluate_detections(self):
     raise NotImplementedError

@@ -17,6 +17,7 @@ from six.moves import xrange
 import tensorflow as tf
 import threading
 import math
+import copy
 
 from config import *
 from dataset import pascal_voc, kitti, toy_car, kitti_instance
@@ -49,9 +50,11 @@ tf.app.flags.DEFINE_integer('checkpoint_step', 1000,
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 
 
-def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center', write=False, img_name=None):
+def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', write=False, img_name=None):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
+  bk_im = copy.deepcopy(im)
+  ht, wd, ch = np.shape(im)
   for bbox, label in zip(box_list, label_list):
     if form == 'center':
       raw_bounding_box = bbox
@@ -109,13 +112,26 @@ def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='cente
     if cdict and l in cdict:
       c = cdict[l]
     else:
-      c = color
+      if color == None:
+        c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
+      else:
+        c = color
 
     # draw box
     cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
     # draw label
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+    if color == None:
+      color_mask = np.zeros((ht, wd, 3), np.uint8)
+      cv2.fillConvexPoly(color_mask, points, c)
+      # gray1 = cv2.cvtColor(color_mask, cv2.COLOR_BGR2GRAY) # convert to grayscale
+      # ret, rough_mask = cv2.threshold(gray1, 126, 255, cv2.THRESH_BINARY)
+      im[color_mask > 0] = bk_im[color_mask > 0]
+      im[color_mask > 0] = 0.6*im[color_mask > 0]  + 0.4*color_mask[color_mask > 0]
+      cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, (0,0,0), 1)
+    else:
+      cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, c, 1)
+
     for p in range(len(points)):
       cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
     if write:
@@ -131,8 +147,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
     # draw ground truth
     _draw_box(
         images[i], bboxes[i],
-        [mc.CLASS_NAMES[idx] for idx in labels[i]],
-        (0, 255, 0))
+        [mc.CLASS_NAMES[idx] for idx in labels[i]]) #specify color if you dont want masks
 
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
@@ -148,7 +163,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (0, 0, 255))
+        (0, 0, 255)) #specify color if you dont want masks
 
 
 def train():
@@ -218,10 +233,10 @@ def train():
     def _load_data(load_to_placeholder=True):
       # read batch input
       image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-          bbox_per_batch = imdb.read_batch()
+          bbox_per_batch, strength_per_batch = imdb.read_batch()
 
-      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
-          = [], [], [], [], []
+      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, strength_values, strength_indices\
+          = [], [], [], [], [], [], []
       aidx_set = set()
       num_discarded_labels = 0
       num_labels = 0
@@ -237,6 +252,8 @@ def train():
                 [[i, aidx_per_batch[i][j], k] for k in range(8)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
+            strength_values.append(strength_per_batch[i][j])
+            strength_indices.append([i, aidx_per_batch[i][j]])
           else:
             num_discarded_labels += 1
 
@@ -250,12 +267,14 @@ def train():
         box_delta_input = model.ph_box_delta_input
         box_input = model.ph_box_input
         labels = model.ph_labels
+        fg_strength = model.ph_fg_strength
       else:
         image_input = model.image_input
         input_mask = model.input_mask
         box_delta_input = model.box_delta_input
         box_input = model.box_input
         labels = model.labels
+        fg_strength = model.fg_strength
 
       feed_dict = {
           image_input: image_per_batch,
@@ -274,14 +293,18 @@ def train():
               label_indices,
               [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
               [1.0]*len(label_indices)),
+          fg_strength: np.reshape(sparse_to_dense(
+                  strength_indices, [mc.BATCH_SIZE, mc.ANCHORS],
+                  strength_values),
+              [mc.BATCH_SIZE, mc.ANCHORS, 1]),
       }
 
-      return feed_dict, image_per_batch, label_per_batch, bbox_per_batch
+      return feed_dict, image_per_batch, label_per_batch, bbox_per_batch, strength_per_batch
 
     def _enqueue(sess, coord):
       try:
         while not coord.should_stop():
-          feed_dict, _, _, _ = _load_data()
+          feed_dict, _, _, _, _ = _load_data()
           sess.run(model.enqueue_op, feed_dict=feed_dict)
           if mc.DEBUG_MODE:
             print ("added to the queue")
@@ -328,15 +351,15 @@ def train():
       start_time = time.time()
 
       if step % FLAGS.summary_step == 0:
-        feed_dict, image_per_batch, label_per_batch, bbox_per_batch = \
+        feed_dict, image_per_batch, label_per_batch, bbox_per_batch, strength_per_batch = \
             _load_data(load_to_placeholder=False)
         op_list = [
             model.train_op, model.loss, summary_op, model.det_boxes,
             model.det_probs, model.det_class, model.conf_loss,
-            model.bbox_loss, model.class_loss, model.filters
+            model.bbox_loss, model.class_loss, model.filters, model.strength_loss
         ]
         _, loss_value, summary_str, det_boxes, det_probs, det_class, \
-            conf_loss, bbox_loss, class_loss, filters = sess.run(
+            conf_loss, bbox_loss, class_loss, filters, strength_loss = sess.run(
                 op_list, feed_dict=feed_dict)
 
         print("Filter Shapes: ", np.shape(filters))
@@ -362,24 +385,24 @@ def train():
         summary_writer.add_summary(viz_filters_summary, step)
         summary_writer.flush()
 
-        print ('conf_loss: {}, bbox_loss: {}, class_loss: {}'.
-            format(conf_loss, bbox_loss, class_loss))
+        print ('conf_loss: {}, bbox_loss: {}, class_loss: {}, strength_loss:{}'.
+            format(conf_loss, bbox_loss, class_loss, strength_loss))
       else:
         if mc.NUM_THREAD > 0:
-          _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
+          _, loss_value, conf_loss, bbox_loss, class_loss, strength_loss = sess.run(
               [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
-               model.class_loss], options=run_options)
+               model.class_loss, model.strength_loss], options=run_options)
         else:
           feed_dict, _, _, _ = _load_data(load_to_placeholder=False)
-          _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
+          _, loss_value, conf_loss, bbox_loss, class_loss, strength_loss = sess.run(
               [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
-               model.class_loss], feed_dict=feed_dict)
+               model.class_loss, model.strength_loss], feed_dict=feed_dict)
 
       duration = time.time() - start_time
 
       assert not np.isnan(loss_value), \
           'Model diverged. Total loss: {}, conf_loss: {}, bbox_loss: {}, ' \
-          'class_loss: {}'.format(loss_value, conf_loss, bbox_loss, class_loss)
+          'class_loss: {}, strength_loss:{}'.format(loss_value, conf_loss, bbox_loss, class_loss, strength_loss)
 
       if step % 10 == 0:
         num_images_per_step = mc.BATCH_SIZE
