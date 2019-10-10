@@ -845,7 +845,7 @@ class ModelSkeleton:
 
       return outputs
 
-  def filter_prediction(self, boxes, probs, cls_idx):
+  def filter_prediction(self, boxes, probs, cls_idx, fg_strengths):
     """Filter bounding box predictions with probability threshold and
     non-maximum supression.
 
@@ -865,15 +865,18 @@ class ModelSkeleton:
       probs = probs[order]
       boxes = boxes[order]
       cls_idx = cls_idx[order]
+      fg_strengths = fg_strengths[order]
     else:
       filtered_idx = np.nonzero(probs>mc.PROB_THRESH)[0]
       probs = probs[filtered_idx]
       boxes = boxes[filtered_idx]
       cls_idx = cls_idx[filtered_idx]
+      fg_strengths = fg_strengths[filtered_idx]
 
     final_boxes = []
     final_probs = []
     final_cls_idx = []
+    final_fg_strengths = []
 
     for c in range(mc.CLASSES):
       idx_per_class = [i for i in range(len(probs)) if cls_idx[i] == c]
@@ -883,7 +886,8 @@ class ModelSkeleton:
           final_boxes.append(boxes[idx_per_class[i]])
           final_probs.append(probs[idx_per_class[i]])
           final_cls_idx.append(c)
-    return final_boxes, final_probs, final_cls_idx
+          final_fg_strengths.append(fg_strengths[idx_per_class[i]])
+    return final_boxes, final_probs, final_cls_idx, final_fg_strengths
 
   def _activation_summary(self, x, layer_name):
     """Helper to create summaries for activations.

@@ -190,19 +190,27 @@ def image_demo():
         input_image = im - mc.BGR_MEANS
 
         # Detect
-        det_boxes, det_probs, det_class = sess.run(
-            [model.det_boxes, model.det_probs, model.det_class],
+        det_boxes, det_probs, det_class, pred_fg_strength = sess.run(
+            [model.det_boxes, model.det_probs, model.det_class, model.pred_fg_strength],
             feed_dict={model.image_input:[input_image]})
 
+        print("Model FG Strengths:", np.shape(pred_fg_strength))
         # Filter
-        final_boxes, final_probs, final_class = model.filter_prediction(
-            det_boxes[0], det_probs[0], det_class[0])
+        final_boxes, final_probs, final_class, final_strength = model.filter_prediction(
+            det_boxes[0], det_probs[0], det_class[0], pred_fg_strength[0])
 
         keep_idx    = [idx for idx in range(len(final_probs)) \
                           if final_probs[idx] > mc.PLOT_PROB_THRESH]
-        final_boxes = [final_boxes[idx] for idx in keep_idx]
-        final_probs = [final_probs[idx] for idx in keep_idx]
-        final_class = [final_class[idx] for idx in keep_idx]
+        final_boxes = np.asarray([final_boxes[idx] for idx in keep_idx])
+        final_probs = np.asarray([final_probs[idx] for idx in keep_idx])
+        final_class = np.asarray([final_class[idx] for idx in keep_idx])
+        final_strength = np.asarray([final_strength[idx] for idx in keep_idx])
+
+        sorted_indices = np.argsort(final_strength)
+        final_boxes = final_boxes[sorted_indices]
+        final_probs = final_probs[sorted_indices]
+        final_class = final_class[sorted_indices]
+        final_strength = final_strength[sorted_indices]
 
         # TODO(bichen): move this color dict to configuration file
         # cls2clr = {
@@ -224,9 +232,8 @@ def image_demo():
         # )
         _draw_box(
             im, final_boxes,
-            [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
-                for idx, prob in zip(final_class, final_probs)],
-            cdict=cls2clr
+            [mc.CLASS_NAMES[idx]+': (%.2f)'% strength #+ ': (%.2f)'% strength \
+                for idx, prob, strength in zip(final_class, final_probs, final_strength)]
         )
 
         file_name = os.path.split(f)[1]
