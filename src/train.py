@@ -11,6 +11,7 @@ from datetime import datetime
 import os.path
 import sys
 import time
+import copy
 
 import numpy as np
 from six.moves import xrange
@@ -18,14 +19,15 @@ import tensorflow as tf
 import threading
 
 from config import *
-from dataset import pascal_voc, kitti
-from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
+from dataset import pascal_voc, kitti, cityscape
+from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform2, bbox_transform_inv2, bbox_transform
 from nets import *
+from dataset.input_reader import decode_parameterization
 
 FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('dataset', 'KITTI',
-                           """Currently only support KITTI dataset.""")
+                           """Currently only support KITTI and CITYSCAPE datasets.""")
 tf.app.flags.DEFINE_string('data_path', '', """Root directory of data""")
 tf.app.flags.DEFINE_string('image_set', 'train',
                            """ Can be train, trainval, val, or test""")
@@ -46,33 +48,58 @@ tf.app.flags.DEFINE_integer('summary_step', 10,
 tf.app.flags.DEFINE_integer('checkpoint_step', 1000,
                             """Number of steps to save summary.""")
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
+tf.app.flags.DEFINE_integer('mask_parameterization', 4,
+                            """Bounding box is 4, octagonal mask is 8. other values not supported""")
 
-
-def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center'):
+def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
-
+  bkp_im = copy.deepcopy(im)
+  ht, wd, ch = np.shape(im)
   for bbox, label in zip(box_list, label_list):
-
     if form == 'center':
-      bbox = bbox_transform(bbox)
+      if draw_masks:
+        raw_bounding_box = bbox
+        bbox = bbox_transform2(bbox)
+      else:
+        bbox = bbox_transform(bbox)
+    else:
+      if draw_masks:
+        raw_bounding_box = bbox_transform_inv2(bbox)
 
-    xmin, ymin, xmax, ymax = [int(b) for b in bbox]
+    xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
+    if draw_masks:
+      points = decode_parameterization(raw_bounding_box)
+      points = np.round(points)
+      points = np.array(points, 'int32')
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
     if cdict and l in cdict:
-      c = cdict[l]
+      c = cdict[l] # if color dict is provided , use it
     else:
-      c = color
+      if color == None: # if color is provided use it or use random colors
+        c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
+      else:
+        c = color
 
     # draw box
     cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
     # draw label
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+    font = cv2.FONT_HERSHEY_DUPLEX
+    if draw_masks:
+      color_mask = np.zeros((ht, wd, 3), np.uint8)
+      cv2.fillConvexPoly(color_mask, points, c)
+      im[color_mask > 0] = bkp_im[color_mask > 0]
+      im[color_mask > 0] = 0.6*im[color_mask > 0]  + 0.4*color_mask[color_mask > 0]
+      cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, c, 1)
+      for p in range(len(points)):
+        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
+    else:
+      cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
-                           batch_det_class, batch_det_prob):
+                           batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False):
   mc = model.mc
 
   for i in range(len(images)):
@@ -80,7 +107,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
     _draw_box(
         images[i], bboxes[i],
         [mc.CLASS_NAMES[idx] for idx in labels[i]],
-        (0, 255, 0))
+        draw_masks=visualize_gt_masks)
 
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
@@ -96,13 +123,14 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (0, 0, 255))
+        (0, 0, 0), draw_masks=visualize_pred_masks)
 
 
 def train():
   """Train SqueezeDet model"""
-  assert FLAGS.dataset == 'KITTI', \
-      'Currently only support KITTI dataset'
+  assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'CITYSCAPE', \
+      'Currently only support KITTI and CITYSCAPE datasets'
+  assert FLAGS.mask_parameterization in [4,8], 'Values other than 4 and 8 are not supported !'
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
@@ -112,27 +140,42 @@ def train():
         or FLAGS.net == 'squeezeDet' or FLAGS.net == 'squeezeDet+', \
         'Selected neural net architecture not supported: {}'.format(FLAGS.net)
     if FLAGS.net == 'vgg16':
-      mc = kitti_vgg16_config()
+      if FLAGS.dataset == 'KITTI':
+        mc = kitti_vgg16_config(FLAGS.mask_parameterization)
+      elif FLAGS.dataset == 'CITYSCAPE':
+        mc = cityscape_vgg16_config(FLAGS.mask_parameterization)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
-      mc = kitti_res50_config()
+      if FLAGS.dataset == 'KITTI':
+        mc = kitti_res50_config(FLAGS.mask_parameterization)
+      elif FLAGS.dataset == 'CITYSCAPE':
+        mc = cityscape_res50_config(FLAGS.mask_parameterization)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = ResNet50ConvDet(mc)
     elif FLAGS.net == 'squeezeDet':
-      mc = kitti_squeezeDet_config()
+      if FLAGS.dataset == 'KITTI':
+        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization)
+      elif FLAGS.dataset == 'CITYSCAPE':
+        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDet(mc)
     elif FLAGS.net == 'squeezeDet+':
-      mc = kitti_squeezeDetPlus_config()
+      if FLAGS.dataset == 'KITTI':
+        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization)
+      elif FLAGS.dataset == 'CITYSCAPE':
+        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
 
-    imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+    if FLAGS.dataset == 'KITTI':
+      imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+    elif FLAGS.dataset == 'CITYSCAPE':
+      imdb = cityscape(FLAGS.image_set, FLAGS.data_path, mc)
 
     # save model size, flops, activations by layers
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
@@ -179,7 +222,7 @@ def train():
                 [i, aidx_per_batch[i][j], label_per_batch[i][j]])
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(4)])
+                [[i, aidx_per_batch[i][j], k] for k in range(FLAGS.mask_parameterization)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -210,10 +253,10 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, FLAGS.mask_parameterization],
               box_delta_values),
           box_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, FLAGS.mask_parameterization],
               box_values),
           labels: sparse_to_dense(
               label_indices,
@@ -284,9 +327,15 @@ def train():
             conf_loss, bbox_loss, class_loss = sess.run(
                 op_list, feed_dict=feed_dict)
 
+        visualize_gt_masks = False
+        visualize_pred_masks = False
+        if mc.EIGHT_POINT_REGRESSION:
+          visualize_gt_masks = True
+          visualize_pred_masks = False
+
         _viz_prediction_result(
             model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-            det_class, det_probs)
+            det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
         image_per_batch = bgr_to_rgb(image_per_batch)
         viz_summary = sess.run(
             model.viz_op, feed_dict={model.image_to_show: image_per_batch})

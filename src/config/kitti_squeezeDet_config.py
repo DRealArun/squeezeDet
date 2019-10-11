@@ -6,8 +6,9 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_squeezeDet_config():
+def kitti_squeezeDet_config(mask_parameterization):
   """Specify the parameters to tune below."""
+  assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
 
   mc.IMAGE_WIDTH           = 1248

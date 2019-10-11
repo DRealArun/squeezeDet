@@ -31,6 +31,9 @@ class SqueezeDet(ModelSkeleton):
     """NN architecture."""
 
     mc = self.mc
+    num_mask_params = 4
+    if mc.EIGHT_POINT_REGRESSION:
+      num_mask_params = 8
     if mc.LOAD_PRETRAINED_MODEL:
       assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), \
           'Cannot find pretrained model at the given path:' \
@@ -73,7 +76,7 @@ class SqueezeDet(ModelSkeleton):
         'fire11', fire10, s1x1=96, e1x1=384, e3x3=384, freeze=False)
     dropout11 = tf.nn.dropout(fire11, self.keep_prob, name='drop11')
 
-    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
+    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)
     self.preds = self._conv_layer(
         'conv12', dropout11, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)

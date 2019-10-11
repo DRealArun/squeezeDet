@@ -32,6 +32,9 @@ class VGG16ConvDet(ModelSkeleton):
     """Build the VGG-16 model."""
 
     mc = self.mc
+    num_mask_params = 4
+    if mc.EIGHT_POINT_REGRESSION:
+      num_mask_params = 8
     if mc.LOAD_PRETRAINED_MODEL:
       assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), \
           'Cannot find pretrained model at the given path:' \
@@ -84,7 +87,7 @@ class VGG16ConvDet(ModelSkeleton):
 
     dropout5 = tf.nn.dropout(conv5_3, self.keep_prob, name='drop6')
 
-    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
+    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)
     self.preds = self._conv_layer(
         'conv6', dropout5, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)

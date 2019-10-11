@@ -10,16 +10,16 @@ import numpy as np
 import imageio as sp
 
 from PIL import Image
-from dataset.imdb import imdb
+from dataset.input_reader import input_reader
 from utils.util import bbox_transform_inv, batch_iou
 from collections import namedtuple
-from dataset.cityscape-utils.cityscapesscripts.helpers.labels import labels as csLabels
-from dataset.cityscape-utils.cityscapesscripts.helpers.labels import assureSingleInstanceName
+from dataset.cityscape_utils.cityscapesscripts.helpers.labels import labels as csLabels
+from dataset.cityscape_utils.cityscapesscripts.helpers.labels import assureSingleInstanceName
 
 
-class cityscape(imdb):
+class cityscape(input_reader):
   def __init__(self, image_set, data_path, mc):
-    imdb.__init__(self, 'cityscape_'+image_set, mc)
+    input_reader.__init__(self, 'cityscape_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
     self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')
@@ -32,7 +32,7 @@ class cityscape(imdb):
     self.labels = csLabels
 
     self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']
-    self._rois, self._poly = self._load_cityscape_8_point_annotation()
+    self._rois, self._poly = self._load_cityscape_annotations(mc.EIGHT_POINT_REGRESSION) # ignore self._poly if mc.EIGHT_POINT_REGRESSION = False
 
     self._perm_idx = None
     self._cur_idx = 0
@@ -55,35 +55,34 @@ class cityscape(imdb):
         'Image does not exist: {}'.format(image_path)
     return image_path
 
-  def get_8_point_mask_parameterization(self, polygon, height, width):
-    """Extract the 8-point parameterization of a polygon representing the instance mask.
+  def get_bounding_box_parameterization(self, polygon, height, width):
+    """Extract the bounding box of a polygon representing the instance mask.
     Args:
         polygon: a list of points representing the instance mask.
         height: height of the image
         width: width of the image
     Returns:
-      mask_vector: 8 point parameterization of the instance mask.
+      mask_vector: bounding box of the instance mask [xmin, ymin, xmax, ymax].
     """
     outline = np.array(polygon)
-    rrr, ccc = outline[:,1], outline[:,0]
-    rr = []
-    cc = []
-    for r in rrr:
-      if r < 0:
-        r = 0
-      if r > height:
-        r = height
-      rr.append(r)
-    for c in ccc:
-      if c < 0:
-        c = 0
-      if c > width:
-        c = width
-      cc.append(c)
-    rr = np.array(rr)
-    cc = np.array(cc)
-    sum_values = cc + rr
-    diff_values = cc - rr
+    # rrr, ccc = outline[:,1], outline[:,0]
+    # rr = []
+    # cc = []
+    # for r in rrr:
+    #   if r < 0:
+    #     r = 0
+    #   if r > height:
+    #     r = height
+    #   rr.append(r)
+    # for c in ccc:
+    #   if c < 0:
+    #     c = 0
+    #   if c > width:
+    #     c = width
+    #   cc.append(c)
+    # rr = np.array(rr)
+    # cc = np.array(cc)
+    rr, cc = outline[:,1], outline[:,0]
     xmin = max(min(cc), 0)
     xmax = min(max(cc), width)
     ymin = max(min(rr), 0)
@@ -92,32 +91,26 @@ class cityscape(imdb):
     height      = ymax - ymin
     center_x  = xmin + 0.5*width 
     center_y  = ymin + 0.5*height
-    center = (center_x, center_y)
-    min_sum_indices = np.where(sum_values == np.amin(sum_values))[0][0]
-    pt_p_min = (cc[min_sum_indices], rr[min_sum_indices])
-    max_sum_indices = np.where(sum_values == np.amax(sum_values))[0][0]
-    pt_p_max = (cc[max_sum_indices], rr[max_sum_indices])
-    min_diff_indices = np.where(diff_values == np.amin(diff_values))[0][0]
-    pt_n_min = (cc[min_diff_indices], rr[min_diff_indices])
-    max_diff_indices = np.where(diff_values == np.amax(diff_values))[0][0]
-    pt_n_max = (cc[max_diff_indices], rr[max_diff_indices])
-    pts = [pt_p_min, pt_n_min, pt_p_max, pt_n_max]
-    mask_vector = [xmin, ymin, xmax, ymax, pts[0], pts[1], pts[2], pts[3], center_x, center_y, width, height]
+    mask_vector = [xmin, ymin, xmax, ymax, center_x, center_y, width, height]
     return mask_vector
 
-  def _load_cityscape_8_point_annotation(self):
-    """Load the cityscape instance segmentation annotations and extract the corresponding 8-point parameterization.
-    Args: NA
+  def _load_cityscape_annotations(self, include_8_point_masks=False):
+    """Load the cityscape instance segmentation annotations.
+    Args: include_8_point_masks: a boolean representing if we need to extract 8 point mask parameterization
     Returns:
       idx2annotation: dictionary mapping image name to the bounding box parameters
-      idx2polygons: dictionary mapping image name to the raw binary mask polygons
+      idx2polygons: dictionary mapping image name to the raw binary mask polygons or None depending on include_8_point_masks. 
     """
     idx2annotation = {}
-    idx2polygons = {}
+    if include_8_point_masks:
+      idx2polygons = {}
+    else:
+      idx2polygons = None
     rejected_image_ids = []
     for index in self._image_idx:
       bboxes = []
-      polygons = []
+      if include_8_point_masks:
+        polygons = []
       filename = os.path.join(self._label_path, index[:-11]+'gtFine_polygons.json')
       instance_info = dict()
       with open(filename) as f:
@@ -131,8 +124,8 @@ class cityscape(imdb):
           if modified_name in self.permitted_classes:
             polygon = np.array(instance['polygon'], dtype=np.float)
             cls = self._class_to_idx[modified_name]
-            vector = self.get_8_point_mask_parameterization(polygon, imgHeight, imgWidth) 
-            xmin, ymin, xmax, ymax, pt1, pt2, pt3, pt4, cx, cy, w, h = vector
+            vector = self.get_bounding_box_parameterization(polygon, imgHeight, imgWidth) 
+            xmin, ymin, xmax, ymax, cx, cy, w, h = vector
             assert xmin >= 0.0 and xmin <= xmax, \
                 'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
                     .format(xmin, xmax, index)
@@ -140,13 +133,15 @@ class cityscape(imdb):
                 'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
                     .format(ymin, ymax, index)
             bboxes.append([cx, cy, w, h, cls])
-            polygons.append([imgHeight, imgWidth, polygon])
+            if include_8_point_masks:
+              polygons.append([imgHeight, imgWidth, polygon])
       # assert len(bboxes) !=0, "Error here empty bounding box appending"+str(bboxes)
       if len(bboxes) == 0:
         rejected_image_ids.append(index)
       else:
         idx2annotation[index] = bboxes
-        idx2polygons[index] = polygons
+        if include_8_point_masks:
+          idx2polygons[index] = polygons
     for id_val in rejected_image_ids:
       self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.
     return idx2annotation, idx2polygons

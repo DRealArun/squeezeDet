@@ -5,6 +5,7 @@
 import numpy as np
 import time
 import tensorflow as tf
+import math
 
 def iou(box1, box2):
   """Compute the Intersection-Over-Union of two given boxes.
@@ -51,6 +52,8 @@ def batch_iou(boxes, box):
   )
   inter = lr*tb
   union = boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter
+  if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter:
+    print("IOU", inter, union)
   return inter/union
 
 def nms(boxes, probs, threshold):
@@ -193,6 +196,35 @@ def bbox_transform_inv(bbox):
     out_box[2]  = width
     out_box[3]  = height
 
+  return out_box
+
+def bbox_transform2(bbox):
+  """convert a bbox of form [cx, cy, w, h] to [xmin, ymin, xmax, ymax]. Works
+  for numpy array or list of tensors.
+  """
+  with tf.variable_scope('bbox_transform2') as scope:
+    cx, cy, w, h = bbox[0:4]
+    out_box = [[]]*8
+    out_box[0] = cx-w/2
+    out_box[1] = cy-h/2
+    out_box[2] = cx+w/2
+    out_box[3] = cy+h/2
+    out_box[4:8] = bbox[4:8]
+  return out_box
+
+def bbox_transform_inv2(bbox):
+  """convert a bbox of form [xmin, ymin, xmax, ymax] to [cx, cy, w, h]. Works
+  for numpy array or list of tensors.
+  """
+  with tf.variable_scope('bbox_transform_inv2') as scope:
+    out_box = [[]]*8
+    xmin, ymin, xmax, ymax, out_box[4], out_box[5], out_box[6], out_box[7] = bbox
+    width       = xmax - xmin
+    height      = ymax - ymin
+    out_box[0]  = xmin + 0.5*width 
+    out_box[1]  = ymin + 0.5*height
+    out_box[2]  = width
+    out_box[3]  = height
   return out_box
 
 class Timer(object):

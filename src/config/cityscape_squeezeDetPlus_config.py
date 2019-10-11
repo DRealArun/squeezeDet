@@ -1,19 +1,18 @@
-# Author: Bichen Wu (bichen@berkeley.edu) 08/25/2016
+# Author: Arun Prabhu (arun.rajendra.prabhu@iais.fraunhofer.de) 10/11/2019
 
-"""Model configuration for pascal dataset"""
+"""SqueezeDetPlus Model configuration for cityscape dataset"""
 
 import numpy as np
 
 from .config import base_model_config
 
-def kitti_res50_config(mask_parameterization):
+def cityscape_squeezeDetPlus_config(mask_parameterization):
   """Specify the parameters to tune below."""
-  assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
-  mc                       = base_model_config('KITTI')
+  mc                       = base_model_config('CITYSCAPE')
 
   mc.IMAGE_WIDTH           = 1242
   mc.IMAGE_HEIGHT          = 375
-  mc.BATCH_SIZE            = 20
+  mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
@@ -40,16 +39,18 @@ def kitti_res50_config(mask_parameterization):
   mc.ANCHOR_BOX            = set_anchors(mc)
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
+  if mask_parameterization == 8:
+    mc.EIGHT_POINT_REGRESSION = True
 
   return mc
 
 def set_anchors(mc):
-  H, W, B = 24, 78, 9
+  H, W, B = 22, 76, 9
   anchor_shapes = np.reshape(
       [np.array(
-          [[  94.,  49.], [ 225., 161.], [ 170.,  91.],
-           [ 390., 181.], [  41.,  32.], [ 128.,  64.],
-           [ 298., 164.], [ 232.,  99.], [  65.,  42.]])] * H * W,
+          [[  36.,  37.], [ 366., 174.], [ 115.,  59.],
+           [ 162.,  87.], [  38.,  90.], [ 258., 173.],
+           [ 224., 108.], [  78., 170.], [  72.,  43.]])] * H * W,
       (H, W, B, 2)
   )
   center_x = np.reshape(
