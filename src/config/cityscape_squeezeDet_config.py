@@ -10,13 +10,13 @@ def cityscape_squeezeDet_config(mask_parameterization):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
-  mc.IMAGE_WIDTH           = 1248
-  mc.IMAGE_HEIGHT          = 384
+  mc.IMAGE_WIDTH           = 1242
+  mc.IMAGE_HEIGHT          = 375
   mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
-  mc.DECAY_STEPS           = 10000
+  mc.DECAY_STEPS           = 40000
   mc.MAX_GRAD_NORM         = 1.0
   mc.MOMENTUM              = 0.9
   mc.LR_DECAY_FACTOR       = 0.5
@@ -56,7 +56,7 @@ def set_anchors(mc):
   center_x = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, W+1)*float(mc.IMAGE_WIDTH)/(W+1)]*H*B), 
+              np.array([np.arange(0, W)*16 +5]*H*B), 
               (B, H, W)
           ),
           (1, 2, 0)
@@ -66,7 +66,7 @@ def set_anchors(mc):
   center_y = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, H+1)*float(mc.IMAGE_HEIGHT)/(H+1)]*W*B),
+              np.array([np.arange(0, H)*16 +3]*W*B),
               (B, W, H)
           ),
           (2, 1, 0)
