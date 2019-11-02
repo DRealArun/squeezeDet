@@ -120,8 +120,8 @@ class cityscape(input_reader):
         instances = data_dict['objects']
         for instance in instances:
           class_name = instance['label']
-          modified_name = assureSingleInstanceName(class_name)
-          if modified_name in self.permitted_classes:
+          modified_name = assureSingleInstanceName(class_name, reject_groups=True)
+          if modified_name != None and modified_name in self.permitted_classes:
             polygon = np.array(instance['polygon'], dtype=np.float)
             cls = self._class_to_idx[modified_name]
             vector = self.get_bounding_box_parameterization(polygon, imgHeight, imgWidth) 

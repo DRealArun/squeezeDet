@@ -42,7 +42,7 @@ class SqueezeDetPlus(ModelSkeleton):
 
     conv1 = self._conv_layer(
         'conv1', self.image_input, filters=96, size=7, stride=2,
-        padding='VALID', freeze=True)
+        padding='SAME', freeze=True)
     pool1 = self._pooling_layer(
         'pool1', conv1, size=3, stride=2, padding='VALID')
 

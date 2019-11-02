@@ -10,8 +10,8 @@ def cityscape_vgg16_config(mask_parameterization):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
-  mc.IMAGE_WIDTH           = 1242
-  mc.IMAGE_HEIGHT          = 375
+  mc.IMAGE_WIDTH           = 1024
+  mc.IMAGE_HEIGHT          = 512
   mc.BATCH_SIZE            = 5
 
   mc.WEIGHT_DECAY          = 0.0001
@@ -45,18 +45,18 @@ def cityscape_vgg16_config(mask_parameterization):
   return mc
 
 def set_anchors(mc):
-  H, W, B = 24, 78, 9
+  H, W, B = 31, 63, 9
   anchor_shapes = np.reshape(
       [np.array(
-          [[  36.,  37.], [ 366., 174.], [ 115.,  59.],
-           [ 162.,  87.], [  38.,  90.], [ 258., 173.],
-           [ 224., 108.], [  78., 170.], [  72.,  43.]])] * H * W,
+          [[15.93, 16.07], [34.82, 37.27], [34.32, 70.14],
+           [102.69, 66.61], [55.86, 122.26], [172.25, 116.73],
+           [96.53, 202.02], [273.93, 190.09], [196.36, 315.79]])] * H * W,
       (H, W, B, 2)
   )
   center_x = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, W+1)*float(mc.IMAGE_WIDTH)/(W+1)]*H*B), 
+              np.array([np.arange(1, W+1)*16]*H*B), 
               (B, H, W)
           ),
           (1, 2, 0)
@@ -66,7 +66,7 @@ def set_anchors(mc):
   center_y = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, H+1)*float(mc.IMAGE_HEIGHT)/(H+1)]*W*B),
+              np.array([np.arange(1, H+1)*16]*W*B),
               (B, W, H)
           ),
           (2, 1, 0)

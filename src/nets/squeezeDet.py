@@ -44,21 +44,21 @@ class SqueezeDet(ModelSkeleton):
         'conv1', self.image_input, filters=64, size=3, stride=2,
         padding='SAME', freeze=True)
     pool1 = self._pooling_layer(
-        'pool1', conv1, size=3, stride=2, padding='SAME')
+        'pool1', conv1, size=3, stride=2, padding='VALID')
 
     fire2 = self._fire_layer(
         'fire2', pool1, s1x1=16, e1x1=64, e3x3=64, freeze=False)
     fire3 = self._fire_layer(
         'fire3', fire2, s1x1=16, e1x1=64, e3x3=64, freeze=False)
     pool3 = self._pooling_layer(
-        'pool3', fire3, size=3, stride=2, padding='SAME')
+        'pool3', fire3, size=3, stride=2, padding='VALID')
 
     fire4 = self._fire_layer(
         'fire4', pool3, s1x1=32, e1x1=128, e3x3=128, freeze=False)
     fire5 = self._fire_layer(
         'fire5', fire4, s1x1=32, e1x1=128, e3x3=128, freeze=False)
     pool5 = self._pooling_layer(
-        'pool5', fire5, size=3, stride=2, padding='SAME')
+        'pool5', fire5, size=3, stride=2, padding='VALID')
 
     fire6 = self._fire_layer(
         'fire6', pool5, s1x1=48, e1x1=192, e3x3=192, freeze=False)

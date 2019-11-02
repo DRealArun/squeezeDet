@@ -51,7 +51,7 @@ class VGG16ConvDet(ModelSkeleton):
 
     with tf.variable_scope('conv2') as scope:
       conv2_1 = self._conv_layer(
-          'conv2_1', pool1, filters=128, size=3, stride=1, freeze=True)
+          'conv2_1', pool1, filters=128, size=3, stride=1, freeze=True, padding='VALID')
       conv2_2 = self._conv_layer(
           'conv2_2', conv2_1, filters=128, size=3, stride=1, freeze=True)
       pool2 = self._pooling_layer(
@@ -59,7 +59,7 @@ class VGG16ConvDet(ModelSkeleton):
 
     with tf.variable_scope('conv3') as scope:
       conv3_1 = self._conv_layer(
-          'conv3_1', pool2, filters=256, size=3, stride=1)
+          'conv3_1', pool2, filters=256, size=3, stride=1, padding='VALID')
       conv3_2 = self._conv_layer(
           'conv3_2', conv3_1, filters=256, size=3, stride=1)
       conv3_3 = self._conv_layer(
@@ -69,7 +69,7 @@ class VGG16ConvDet(ModelSkeleton):
 
     with tf.variable_scope('conv4') as scope:
       conv4_1 = self._conv_layer(
-          'conv4_1', pool3, filters=512, size=3, stride=1)
+          'conv4_1', pool3, filters=512, size=3, stride=1, padding='VALID')
       conv4_2 = self._conv_layer(
           'conv4_2', conv4_1, filters=512, size=3, stride=1)
       conv4_3 = self._conv_layer(
