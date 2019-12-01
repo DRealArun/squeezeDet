@@ -6,12 +6,182 @@ import os
 import random
 import shutil
 import math
+import pywt
 
 from dataset.imdb import imdb
 from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
-from utils.util import iou, batch_iou
+from utils.util import iou, batch_iou, get_distance_measure
+from utils.polysimplify import VWSimplifier
+from skimage import measure
+
+def get_wavelet_transform(contour_points, transform):
+  # Do error check for type of transform
+  db1 = pywt.Wavelet(transform) # TODO : dont hard-code HAAR
+  x = contour_points[:,0]
+  y = contour_points[:,1]
+  # https://en.wikipedia.org/wiki/Discrete_wavelet_transform
+  # cD : Detail coefficient output of high pass filtering
+  # cA : Approximation coefficient output of low pass filtering
+  _x_coeffs = pywt.wavedec(x, db1, mode='periodic', level=1) # Returns (cA, cD) hence (_x_coeffs[0], _x_coeffs[1]) = (cA, cD) 
+  _y_coeffs = pywt.wavedec(y, db1, mode='periodic', level=1) # Returns (cA, cD)  
+#     print("Number of contour points:",np.shape(contour_points)[0])
+#     print("Length of the coeffs_x and coeffs_y:",len(_x_coeffs))
+  return _x_coeffs, _y_coeffs
+
+def get_keypoint_indices(contour_points, plot='True', threshold_val=None, transform='haar'):
+  keypoint_indices = []
+  coeffs_x, coeffs_y = get_wavelet_transform(contour_points, transform)
+  for i in range(len(coeffs_x)):
+      coeff_x = np.square(coeffs_x[i])
+      coeff_y = np.square(coeffs_y[i])
+      variation = np.sqrt(coeff_x + coeff_y)
+      if threshold_val == None:
+          threshold = np.mean(variation)
+          print("Theshold", threshold)
+      else:
+          threshold = threshold_val
+      if i > 0: # Select only values from the high frequency coefficients
+          keypoint_indices.append(np.where(variation > threshold))
+      if plot:
+          f, (ax1, ax2) = plt.subplots(1, 2, figsize=(15,7))
+          if i == 0:
+              f.suptitle("Low frequency co-efficients")
+          if i == 1:
+              f.suptitle("High frequency co-efficients")
+          ax1.plot(range(len(coeff_x)), variation, label='total_variation')
+          ax1.plot(range(len(coeff_x)), [threshold]*len(coeff_x), label='mean_variation')
+          ax1.legend()
+          ax1.grid()
+          ax2.plot(range(len(coeff_x)), coeffs_x[i], label='x')
+          ax2.plot(range(len(coeff_x)), coeffs_y[i], label='y')
+          ax2.legend()
+          ax2.grid()
+          plt.show()
+  return keypoint_indices, coeffs_x, coeffs_y
+
+def check_if_significant_with_slope_1(sel, val, stepx=10, stepy=10, slope_thresh=10**(-3)): # filter based on distance from last keypoint
+  angle = 0
+  if len(sel) != 0:
+      diff = np.square(np.subtract(sel[-1], val))
+      dist = np.sqrt(np.sum(diff))
+      angle = np.arctan(diff[1]/(diff[0]+1*10-5)) * 180 / np.pi
+      flag = 1
+      if angle < slope_thresh or (90-angle) < slope_thresh:
+          if dist < (stepx**2+stepy**2)**(0.5):
+              flag = 0
+  else:
+      flag = 1
+  return flag
+
+
+def fill_missing_values(selected, whole_set, max_num_elements):
+  # The selected list contains number of elements less than max_num_elements
+  # Find sum of the distances between each element in whole_set (which are not in selected list) and all the
+  # elements in the selected set.
+  # Arrange the values in whole_set in descending value and select the first (max_num_elements-len(selected)) 
+  # elements
+  selected = [(h[0],h[1]) for h in selected]
+  whole_set = [(h[0],h[1]) for h in whole_set]
+  newly_selected = []
+  distances = []
+  num_missing_values = max_num_elements-len(selected)
+  set_whole = set(whole_set)
+  set_selected = set(selected)
+  set_not_selected = set_whole-set_selected
+  if len(set_not_selected) == num_missing_values:
+      final_selected = list(set_whole) # would not come here because of the check before this function is called
+  elif len(set_not_selected) > num_missing_values:
+      for pt in set_not_selected:
+          distances.append(np.sum(np.sqrt(np.sum(np.square(np.subtract(selected, pt)), axis=1))))
+      indices = np.argsort(distances)[::-1]
+      set_not_selected = list(set_not_selected)
+      newly_selected = [set_not_selected[idx] for idx in indices[0:num_missing_values]]
+      final_selected = [[]] * max_num_elements
+      final_selected[0:len(selected)] = selected
+      final_selected[len(selected):] = newly_selected
+      order = [whole_set.index(ele) for ele in final_selected]
+      final_order_indices = np.argsort(order)
+      final_selected = np.array(final_selected)[final_order_indices].tolist()
+  else:
+      # maybe interpolate for later
+      set_whole_copy = list(set_whole)
+      final_selected = list(set_whole)
+      for count in range(max_num_elements-len(set_whole_copy)):
+          index_to_insert = random.choice(range(len(set_whole_copy)))
+          final_selected.insert(index_to_insert, set_whole_copy[index_to_insert])
+  return final_selected
+
+def subsample_important_values(selected, max_num_elements):
+  simplifier = VWSimplifier(selected)
+  final_list = simplifier.from_number(max_num_elements)
+  return final_list
+
+def draw_mask(contour_poly, dim):
+  shuffled = np.zeros_like(contour_poly)
+  shuffled[:,0] = contour_poly[:,1]
+  shuffled[:,1] = contour_poly[:,0]
+  mask_from_contour = np.zeros(dim)
+  cv2.drawContours(mask_from_contour, np.int32([shuffled]), -1, (255),thickness=-1)
+  return mask_from_contour
+
+def get_cropped_mask_and_contour(mask, poly, margin=2):
+  imH, imW = np.shape(mask)
+  xmin = int(round(max(min(poly[:,0])-2, 0)))
+  xmax = int(round(min(max(poly[:,0])+2, imW)))
+  ymin = int(round(max(min(poly[:,1])-2, 0)))
+  ymax = int(round(min(max(poly[:,1])+2, imH)))
+  mask_cropped = mask[ymin:ymax,xmin:xmax]
+  contours_original = measure.find_contours(mask_cropped, 0.8)
+  contours = []
+  min_len = 0
+  if len(contours_original) == 1:
+    contours = np.squeeze(contours_original)
+  if len(contours_original) != 1:
+    # HAVE TO CHANGE THIS (TODO)
+    for con in contours_original:
+      if len(con) > min_len:
+        min_len = len(con)
+        contours = np.squeeze(con)
+  return mask_cropped, contours, xmin, ymin
+    
+def _get_key_point_encoding(contours_to_analyse, mask_to_analyse, xmin, ymin, max_num_key_points):
+  indices, coeffs_x, coeffs_y = get_keypoint_indices(contours_to_analyse, threshold_val=0, plot=False)
+  indices = np.squeeze(indices)
+  selection = []
+  stepx_val = np.shape(mask_to_analyse)[0]/(32)
+  stepy_val = np.shape(mask_to_analyse)[1]/(32)
+  for ida in indices:
+      if check_if_significant_with_slope_1(selection, contours_to_analyse[ida*2], stepx=stepx_val, stepy=stepy_val, slope_thresh=30):
+          selection.append(contours_to_analyse[ida*2])
+  first_ = len(selection)
+  second_ = 0
+  third_ = 0
+  fourth_ = 0
+  if len(selection) < max_num_key_points:
+      selection = fill_missing_values(selection, contours_to_analyse, max_num_key_points)
+      second_ = len(selection)
+  elif len(selection) > max_num_key_points:
+      selection = subsample_important_values(selection, max_num_key_points)
+      third_ = len(selection)
+      if len(selection) < max_num_key_points: # can happen
+          selection = fill_missing_values(selection, contours_to_analyse, max_num_key_points)
+          fourth_ = len(selection)
+  selection = np.asarray(selection)
+  # Since selection is obtained from PIL contour finding function which gives (rows, col) array.
+  index_x_min = np.argsort(selection[:,1])[0] # selection is (row, col) array
+  origin = selection[index_x_min]
+  center_x = xmin + origin[1]
+  center_y = ymin + origin[0]
+  x_diffs = np.subtract(selection[:,1],origin[1])
+  y_diffs = np.subtract(selection[:,0],origin[0])
+  sinThetas = y_diffs/(np.sqrt(np.add(np.square(x_diffs),np.square(y_diffs)))+1*10**-5)
+  sinThetas_reduced = np.hstack((sinThetas[index_x_min+1:], sinThetas[0:index_x_min]))
+  x_diffs_reduced = np.hstack((x_diffs[index_x_min+1:], x_diffs[0:index_x_min]))
+  if len(sinThetas_reduced) != 19 or len(x_diffs_reduced) != 19:
+    print("Value error while extracting", index_x_min, len(selection), first_, second_, third_, fourth_, len(contours_to_analyse))
+  return center_x, center_y, sinThetas_reduced, x_diffs_reduced
 
 def decode_parameterization(mask_vector):
   """Decodes the octagonal parameterization of the mask to get
@@ -68,6 +238,14 @@ def decode_parameterization(mask_vector):
       op_pt = _get_intersecting_point(vert_hor, eq1, pt, m)
       intersecting_pts.append(op_pt)
   return intersecting_pts
+
+def get_mask(polygon, imh, imw, divider=1):
+  polygon = [polygon]
+  mask = np.zeros((imh,imw))
+  mask = cv2.fillPoly(mask, np.int32(polygon), color=255)
+  mask_reshaped = cv2.resize(mask, (imw//divider, imh//divider), interpolation = cv2.INTER_AREA)
+  ret, mask_reshaped = cv2.threshold(mask_reshaped, 127, 255, 0)
+  return mask_reshaped
 
 class input_reader(imdb):
   """Base image database handler for instance based annotations."""
@@ -218,7 +396,7 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      if mc.EIGHT_POINT_REGRESSION:
+      if mc.EIGHT_POINT_REGRESSION or mc.MULTI_POINT_REGRESSION:
         polygons = [b[2] for b in self._poly[idx][:]]
       is_drift_performed = False
       is_flip_performed = False
@@ -266,7 +444,7 @@ class input_reader(imdb):
       y_scale = mc.IMAGE_HEIGHT/orig_h
       gt_bbox_pre[:, 0::2] = gt_bbox_pre[:, 0::2]*x_scale
       gt_bbox_pre[:, 1::2] = gt_bbox_pre[:, 1::2]*y_scale
-      if mc.EIGHT_POINT_REGRESSION:
+      if mc.EIGHT_POINT_REGRESSION or mc.MULTI_POINT_REGRESSION:
         for p in range(len(polygons)):
           poly = np.array(polygons[p])
           if is_drift_performed:
@@ -301,66 +479,101 @@ class input_reader(imdb):
           assert not (points[0][1] - points[1][1] > 1 or points[2][0] - points[3][0] > 1 or points[5][1] - points[4][1] > 1 or points[7][0] - points[6][0] > 1), "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
           gt_bbox.append(mask_vector)
 
+      if mc.MULTI_POINT_REGRESSION:
+        num_mask_params_local = 20
+        gt_bbox = []
+        actual_bin_masks = []
+        for k in range(len(polygons)):
+          polygon = polygons[k]
+          msk_from_poly = get_mask(np.around(polygon,2), mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1)
+          mask_cropped, contours_squeezed, x_min, y_min = get_cropped_mask_and_contour(msk_from_poly, polygon)
+          assert len(contours_squeezed) != 0, "Error in contours "+ str(len(contours_squeezed))
+          centerx, centery, sin, x_differences = _get_key_point_encoding(contours_squeezed, mask_cropped, x_min, y_min, num_mask_params_local)
+          individual_box = [centerx, centery]
+          individual_box.extend(sin.tolist())
+          individual_box.extend(x_differences.tolist())
+          gt_bbox.append(individual_box)
+
       bbox_per_batch.append(gt_bbox)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
       for i in range(len(gt_bbox)):
-        encompassing_box = gt_bbox[i][0:4]
-        overlaps = batch_iou(mc.ANCHOR_BOX, gt_bbox[i])
-        aidx = len(mc.ANCHOR_BOX)
-        for ov_idx in np.argsort(overlaps)[::-1]:
-          if overlaps[ov_idx] <= 0:
-            if mc.DEBUG_MODE:
-              min_iou = min(overlaps[ov_idx], min_iou)
-              num_objects += 1
-              num_zero_iou_obj += 1
-            break
-          if ov_idx not in aidx_set:
-            aidx_set.add(ov_idx)
-            aidx = ov_idx
-            if mc.DEBUG_MODE:
-              max_iou = max(overlaps[ov_idx], max_iou)
-              min_iou = min(overlaps[ov_idx], min_iou)
-              avg_ious += overlaps[ov_idx]
-              num_objects += 1
-            break
-
-        if aidx == len(mc.ANCHOR_BOX): 
-          # even the largeset available overlap is 0, thus, choose one with the
-          # smallest square distance
-          dist = np.sum(np.square(gt_bbox[i] - mc.ANCHOR_BOX), axis=1)
-          for dist_idx in np.argsort(dist):
-            if dist_idx not in aidx_set:
-              aidx_set.add(dist_idx)
-              aidx = dist_idx
+        if not mc.MULTI_POINT_REGRESSION:
+          encompassing_box = gt_bbox[i][0:4]
+          overlaps = batch_iou(mc.ANCHOR_BOX, gt_bbox[i])
+          aidx = len(mc.ANCHOR_BOX)
+          for ov_idx in np.argsort(overlaps)[::-1]:
+            if overlaps[ov_idx] <= 0:
+              if mc.DEBUG_MODE:
+                min_iou = min(overlaps[ov_idx], min_iou)
+                num_objects += 1
+                num_zero_iou_obj += 1
               break
-        if mc.EIGHT_POINT_REGRESSION:
-          box_cx, box_cy, box_w, box_h, of1, of2, of3, of4 = gt_bbox[i]
-          delta = [0]*8
+            if ov_idx not in aidx_set:
+              aidx_set.add(ov_idx)
+              aidx = ov_idx
+              if mc.DEBUG_MODE:
+                max_iou = max(overlaps[ov_idx], max_iou)
+                min_iou = min(overlaps[ov_idx], min_iou)
+                avg_ious += overlaps[ov_idx]
+                num_objects += 1
+              break
+
+          if aidx == len(mc.ANCHOR_BOX): 
+            # even the largeset available overlap is 0, thus, choose one with the
+            # smallest square distance
+            dist = np.sum(np.square(gt_bbox[i] - mc.ANCHOR_BOX), axis=1)
+            for dist_idx in np.argsort(dist):
+              if dist_idx not in aidx_set:
+                aidx_set.add(dist_idx)
+                aidx = dist_idx
+                break
+          if mc.EIGHT_POINT_REGRESSION:
+            box_cx, box_cy, box_w, box_h, of1, of2, of3, of4 = gt_bbox[i]
+            delta = [0]*8
+          else:
+            box_cx, box_cy, box_w, box_h = gt_bbox[i]
+            delta = [0]*4
+          delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
+          delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
+          delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
+          delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
+
+          if mc.EIGHT_POINT_REGRESSION:
+            EPSILON = 1e-8
+            anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
+            delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)
+            delta[5] = np.log((of2 + EPSILON)/anchor_diagonal)
+            delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
+            delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
         else:
-          box_cx, box_cy, box_w, box_h = gt_bbox[i]
-          delta = [0]*4
-
-        delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
-        delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
-        delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
-        delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
-
-        if mc.EIGHT_POINT_REGRESSION:
-          EPSILON = 1e-8
-          anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
-          delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)
-          delta[5] = np.log((of2 + EPSILON)/anchor_diagonal)
-          delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
-          delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
+          overlaps = get_distance_measure(mc.ANCHOR_BOX, gt_bbox[i])
+          # aidx = len(mc.ANCHOR_BOX)
+          for ov_idx in np.argsort(overlaps):
+            if ov_idx not in aidx_set:
+              aidx_set.add(ov_idx)
+              aidx = ov_idx
+              break
+          box_cx = gt_bbox[i][0]
+          box_cy = gt_bbox[i][1]
+          box_sin = gt_bbox[i][2:2+(num_mask_params_local)-1]
+          box_x_differences = gt_bbox[i][2+(num_mask_params_local)-1:]
+          delta = [0]*2*num_mask_params_local
+          delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/16
+          delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/16
+          delta[2:2+(num_mask_params_local)-1] = box_sin
+          delta[2+(num_mask_params_local)-1:] = np.log10(np.add(box_x_differences,1))
+          if len(delta) != 40:
+            print("Lenght of last value", len(delta))
+            print(delta[0], delta[1], delta[2:2+(num_mask_params_local)-1], delta[2+(num_mask_params_local)-1:], num_mask_params_local)
+            print(len(box_sin), len(np.log10(np.add(box_x_differences,1))))
 
         aidx_per_image.append(aidx)
         delta_per_image.append(delta)
 
       delta_per_batch.append(delta_per_image)
       aidx_per_batch.append(aidx_per_image)
-
     if mc.DEBUG_MODE:
       print ('max iou: {}'.format(max_iou))
       print ('min iou: {}'.format(min_iou))

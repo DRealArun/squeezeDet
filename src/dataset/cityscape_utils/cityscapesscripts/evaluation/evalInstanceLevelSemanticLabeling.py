@@ -72,7 +72,7 @@ def getPrediction( groundTruthFile , args ):
         elif 'CITYSCAPES_DATASET' in os.environ:
             rootPath = os.path.join( os.environ['CITYSCAPES_DATASET'] , "results" )
         else:
-            rootPath = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..','..','results')
+            rootPath = r"D:\leftImg8bit_trainvaltest\leftImg8bit\validation_predictions"
 
         if not os.path.isdir(rootPath):
             printError("Could not find a result root folder. Please read the instructions of this method.")
@@ -118,11 +118,11 @@ args = CArgs()
 if 'CITYSCAPES_DATASET' in os.environ:
     args.cityscapesPath = os.environ['CITYSCAPES_DATASET']
 else:
-    args.cityscapesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..','..')
+    args.cityscapesPath = r"D:\leftImg8bit_trainvaltest\leftImg8bit"
 
 # Parameters that should be modified by user
 args.exportFile         = os.path.join( args.cityscapesPath , "evaluationResults" , "resultInstanceLevelSemanticLabeling.json" )
-args.groundTruthSearch  = os.path.join( args.cityscapesPath , "gtFine" , "val" , "*", "*_gtFine_instanceIds.png" )
+args.groundTruthSearch  = os.path.join( args.cityscapesPath , "val" , "instance", "*_gtFine_instanceIds.png" )
 
 # overlaps for evaluation
 args.overlaps           = np.arange(0.5,1.,0.05)

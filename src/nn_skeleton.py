@@ -78,9 +78,11 @@ class ModelSkeleton:
     self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
     if self.mc.EIGHT_POINT_REGRESSION:
       self.num_mask_params = 8
+    elif self.mc.MULTI_POINT_REGRESSION:
+      self.num_mask_params = 20*2
     else:
       self.num_mask_params = 4
-
+    print("Num of params", self.num_mask_params)
     # image batch input
     self.ph_image_input = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
@@ -189,96 +191,136 @@ class ModelSkeleton:
           delta_x, delta_y, delta_w, delta_h, \
           delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
               self.pred_box_delta, axis=2)
+        elif self.mc.MULTI_POINT_REGRESSION:
+          # TODO
+          delta_x = tf.reshape(self.pred_box_delta[:, :, 0],
+          [1, mc.BATCH_SIZE, mc.ANCHORS])
+          delta_y = tf.reshape(self.pred_box_delta[:, :, 1],
+          [1, mc.BATCH_SIZE, mc.ANCHORS])
+          delta_pt_sine = tf.reshape(self.pred_box_delta[:, :, 2:2+(self.num_mask_params//2)-1],
+          [(self.num_mask_params//2)-1, mc.BATCH_SIZE, mc.ANCHORS])
+          delta_pt_x = tf.reshape(self.pred_box_delta[:, :, 2+(self.num_mask_params//2)-1:],
+          [(self.num_mask_params//2)-1, mc.BATCH_SIZE, mc.ANCHORS])
+
         else:
           delta_x, delta_y, delta_w, delta_h = tf.unstack(
               self.pred_box_delta, axis=2)
 
-        anchor_x = mc.ANCHOR_BOX[:, 0]
-        anchor_y = mc.ANCHOR_BOX[:, 1]
-        anchor_w = mc.ANCHOR_BOX[:, 2]
-        anchor_h = mc.ANCHOR_BOX[:, 3]
+        if self.mc.MULTI_POINT_REGRESSION:
+          anchor_x = mc.ANCHOR_BOX[:, 0]
+          anchor_y = mc.ANCHOR_BOX[:, 1]
+          box_center_x = tf.identity(
+            anchor_x + delta_x * 16, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * 16, name='bbox_cy')
+          pt_sine_thetas = tf.identity(delta_pt_sine, name='pt_sine_thetas')
+          pt_x = tf.identity(tf.pow(delta_pt_x, tf.constant([10], dtype=tf.float32))-1, name='pt_x_values')
 
-        box_center_x = tf.identity(
-            anchor_x + delta_x * anchor_w, name='bbox_cx')
-        box_center_y = tf.identity(
-            anchor_y + delta_y * anchor_h, name='bbox_cy')
-        box_width = tf.identity(
-            anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
-            name='bbox_width')
-        box_height = tf.identity(
-            anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
-            name='bbox_height')
 
-        self._activation_summary(delta_x, 'delta_x')
-        self._activation_summary(delta_y, 'delta_y')
-        self._activation_summary(delta_w, 'delta_w')
-        self._activation_summary(delta_h, 'delta_h')
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(box_center_x, 'bbox_cx')
+          self._activation_summary(box_center_y, 'bbox_cy')
+          for counter in range((self.num_mask_params//2)-1):
+            self._activation_summary(pt_sine_thetas[counter,:,:], 'pt_sine_theta_'+str(counter))
+            self._activation_summary(pt_x[counter,:,:], 'pt_x_values_'+str(counter))
+        else:
 
-        self._activation_summary(box_center_x, 'bbox_cx')
-        self._activation_summary(box_center_y, 'bbox_cy')
-        self._activation_summary(box_width, 'bbox_width')
-        self._activation_summary(box_height, 'bbox_height')
+          anchor_x = mc.ANCHOR_BOX[:, 0]
+          anchor_y = mc.ANCHOR_BOX[:, 1]
+          anchor_w = mc.ANCHOR_BOX[:, 2]
+          anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        if self.mc.EIGHT_POINT_REGRESSION:
-          EPSILON = 1e-8
-          anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
-          box_of1= tf.identity(
-            (anchor_diag * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
-            name='bbox_of1')
-          box_of2= tf.identity(
-              (anchor_diag * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
-              name='bbox_of2')
-          box_of3= tf.identity(
-              (anchor_diag * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
-              name='bbox_of3')
-          box_of4= tf.identity(
-              (anchor_diag * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
-              name='bbox_of4')
-          self._activation_summary(delta_of1, 'delta_of1')
-          self._activation_summary(delta_of2, 'delta_of2')
-          self._activation_summary(delta_of3, 'delta_of3')
-          self._activation_summary(delta_of4, 'delta_of4')
-          self._activation_summary(box_of1, 'box_of1')
-          self._activation_summary(box_of2, 'box_of2')
-          self._activation_summary(box_of3, 'box_of3')
-          self._activation_summary(box_of4, 'box_of4')
+          box_center_x = tf.identity(
+              anchor_x + delta_x * anchor_w, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * anchor_h, name='bbox_cy')
+          box_width = tf.identity(
+              anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
+              name='bbox_width')
+          box_height = tf.identity(
+              anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
+              name='bbox_height')
+
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(delta_w, 'delta_w')
+          self._activation_summary(delta_h, 'delta_h')
+
+          self._activation_summary(box_center_x, 'bbox_cx')
+          self._activation_summary(box_center_y, 'bbox_cy')
+          self._activation_summary(box_width, 'bbox_width')
+          self._activation_summary(box_height, 'bbox_height')
+
+          if self.mc.EIGHT_POINT_REGRESSION:
+            EPSILON = 1e-8
+            anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
+            box_of1= tf.identity(
+              (anchor_diag * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
+              name='bbox_of1')
+            box_of2= tf.identity(
+                (anchor_diag * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
+                name='bbox_of2')
+            box_of3= tf.identity(
+                (anchor_diag * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
+                name='bbox_of3')
+            box_of4= tf.identity(
+                (anchor_diag * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
+                name='bbox_of4')
+            self._activation_summary(delta_of1, 'delta_of1')
+            self._activation_summary(delta_of2, 'delta_of2')
+            self._activation_summary(delta_of3, 'delta_of3')
+            self._activation_summary(delta_of4, 'delta_of4')
+            self._activation_summary(box_of1, 'box_of1')
+            self._activation_summary(box_of2, 'box_of2')
+            self._activation_summary(box_of3, 'box_of3')
+            self._activation_summary(box_of4, 'box_of4')
 
       with tf.variable_scope('trimming'):
-        if self.mc.EIGHT_POINT_REGRESSION:
-          xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
-            [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
-        else:
-          xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
-              [box_center_x, box_center_y, box_width, box_height])
-
-        # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
-        # pixels. Same for y.
-        xmins = tf.minimum(
-            tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
-        self._activation_summary(xmins, 'box_xmin')
-
-        ymins = tf.minimum(
-            tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
-        self._activation_summary(ymins, 'box_ymin')
-
-        xmaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
-        self._activation_summary(xmaxs, 'box_xmax')
-
-        ymaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
-        self._activation_summary(ymaxs, 'box_ymax')
-
-        if self.mc.EIGHT_POINT_REGRESSION:
+        if self.mc.MULTI_POINT_REGRESSION:
+          pt_sine_thetas = tf.minimum(tf.maximum(-1.0, pt_sine_thetas), 1.0, name='min_max_sine_trimming')
+          pt_x = tf.minimum(tf.maximum(0.0, pt_x), mc.IMAGE_WIDTH-1.0, name='min_max_x_trimming')
           self.det_boxes = tf.transpose(
-              tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
-              (1, 2, 0), name='bbox'
-          )
+                tf.stack(util.get_coordinates(box_center_x, box_center_y, pt_sine_thetas, pt_x)),
+                (1, 2, 0), name='bbox'
+            )
         else:
-          self.det_boxes = tf.transpose(
-              tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
-              (1, 2, 0), name='bbox'
-          )
+
+          if self.mc.EIGHT_POINT_REGRESSION:
+            xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
+              [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
+          else:
+            xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
+                [box_center_x, box_center_y, box_width, box_height])
+
+          # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
+          # pixels. Same for y.
+          xmins = tf.minimum(
+              tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
+          self._activation_summary(xmins, 'box_xmin')
+
+          ymins = tf.minimum(
+              tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
+          self._activation_summary(ymins, 'box_ymin')
+
+          xmaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
+          self._activation_summary(xmaxs, 'box_xmax')
+
+          ymaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
+          self._activation_summary(ymaxs, 'box_ymax')
+
+          if self.mc.EIGHT_POINT_REGRESSION:
+            self.det_boxes = tf.transpose(
+                tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
+                (1, 2, 0), name='bbox'
+            )
+          else:
+            self.det_boxes = tf.transpose(
+                tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+                (1, 2, 0), name='bbox'
+            )
 
     with tf.variable_scope('IOU'):
       def _tensor_iou(box1, box2):
@@ -303,16 +345,83 @@ class ModelSkeleton:
         return intersection/(union+mc.EPSILON) \
             * tf.reshape(self.input_mask, [mc.BATCH_SIZE, mc.ANCHORS])
 
-      if self.mc.EIGHT_POINT_REGRESSION:
-        tensor_det_boxes = util.bbox_transform2(tf.unstack(self.det_boxes, axis=2))
-        tensor_input_boxes = util.bbox_transform2(tf.unstack(self.box_input, axis=2))
-      else:
-        tensor_det_boxes = util.bbox_transform(tf.unstack(self.det_boxes, axis=2))
-        tensor_input_boxes = util.bbox_transform(tf.unstack(self.box_input, axis=2))
+      if self.mc.MULTI_POINT_REGRESSION:
+        # tensor_det_boxes = tf.unstack(self.det_boxes, axis=2)
+        tensor_det_boxes = self.det_boxes
 
-      self.ious = self.ious.assign(
-          _tensor_iou(tensor_det_boxes, tensor_input_boxes)
-      )
+        reshaped_box_input = tf.reshape(
+          self.box_input,
+          [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params],
+        )
+        input_x = tf.reshape(reshaped_box_input[:, :, 0],
+        [1, mc.BATCH_SIZE, mc.ANCHORS])
+        input_y = tf.reshape(reshaped_box_input[:, :, 1],
+        [1, mc.BATCH_SIZE, mc.ANCHORS])
+        input_pt_sine = tf.reshape(reshaped_box_input[:, :, 2:2+(self.num_mask_params//2)-1],
+        [(self.num_mask_params//2)-1, mc.BATCH_SIZE, mc.ANCHORS])
+        input_pt_x = tf.reshape(reshaped_box_input[:, :, 2+(self.num_mask_params//2)-1:],
+        [(self.num_mask_params//2)-1, mc.BATCH_SIZE, mc.ANCHORS])
+
+        tensor_input_boxes = tf.transpose(
+                tf.stack(util.get_coordinates(input_x, input_y, input_pt_sine, input_pt_x)),
+                (1, 2, 0), name='bbox_input_transformation'
+        )
+
+        # idx_flattened = tf.range(0, self.num_mask_params, 2)
+        # idy_flattened = tf.range(1, self.num_mask_params, 2)
+        # all_xs_det = tf.gather(tensor_det_boxes, idx_flattened, axis=2)
+        # all_ys_det = tf.gather(tensor_det_boxes, idy_flattened, axis=2) 
+        # all_xs_input = tf.gather(tensor_input_boxes, idx_flattened, axi s=2)
+        # all_ys_input = tf.gather(tensor_input_boxes, idy_flattened, axis=2) 
+
+        all_xs_det = tensor_det_boxes[:,:, 0:20]
+        all_ys_det = tensor_det_boxes[:,:, 20:40]
+        all_xs_input = tensor_input_boxes[:, :, 0:20]
+        all_ys_input = tensor_input_boxes[:, :, 20:40]
+  
+
+        # all_xs_det_converted = tf.add(tensor_det_boxes[2+(self.num_mask_params//2)-1:,:,:], tensor_det_boxes[0,:,:])
+        # all_xs_det = tf.stack((tensor_det_boxes[0,:,:], all_xs_det_converted))
+
+        # all_xs_input_converted = tf.add(tensor_input_boxes[2+(self.num_mask_params//2)-1:,:,:], tensor_input_boxes[0,:,:])
+        # all_xs_input = tf.stack((tensor_input_boxes[0,:,:], all_xs_input_converted))
+
+        # ys_det_nr = tf.multiply(tensor_det_boxes[2:2+(self.num_mask_params//2)-1,:,:], tensor_det_boxes[2+(self.num_mask_params//2)-1:,:,:])
+        # ys_det_dr = tf.sqrt(tf.constant([1]) - tf.square(tensor_det_boxes[2:2+(self.num_mask_params//2)-1,:,:]))
+        # ys_det = tf.add(tf.divide(ys_det_nr, tf.add(ys_det_dr, EPSILON)), tensor_det_boxes[1,:,:])
+        # all_ys_det = tf.stack((tensor_det_boxes[1,:,:], ys_det))
+
+        # ys_inp_nr = tf.multiply(tensor_input_boxes[2:2+(self.num_mask_params//2)-1,:,:], tensor_input_boxes[2+(self.num_mask_params//2)-1:,:,:])
+        # ys_inp_dr = tf.sqrt(tf.constant([1]) - tf.square(tensor_input_boxes[2:2+(self.num_mask_params//2)-1,:,:]))
+        # ys_inp = tf.add(tf.divide(ys_inp_nr, tf.add(ys_inp_dr, EPSILON)), tensor_input_boxes[1,:,:])
+        # all_ys_input = tf.stack((tensor_input_boxes[1,:,:], ys_inp))
+
+        x_min_det = tf.reduce_min(all_xs_det, axis=2)
+        y_min_det = tf.reduce_min(all_ys_det, axis=2)
+        x_max_det = tf.reduce_max(all_xs_det, axis=2)
+        y_max_det = tf.reduce_max(all_ys_det, axis=2)
+        box_det = [x_min_det, y_min_det, x_max_det, y_max_det]
+
+        x_min_inp = tf.reduce_min(all_xs_input, axis=2)
+        y_min_inp = tf.reduce_min(all_ys_input, axis=2)
+        x_max_inp = tf.reduce_max(all_xs_input, axis=2)
+        y_max_inp = tf.reduce_max(all_ys_input, axis=2)
+        box_inp = [x_min_inp, y_min_inp, x_max_inp, y_max_inp]
+        self.ious = self.ious.assign(
+            _tensor_iou(box_det, box_inp)
+        )
+        ######### TODO
+      else:
+        if self.mc.EIGHT_POINT_REGRESSION:
+          tensor_det_boxes = util.bbox_transform2(tf.unstack(self.det_boxes, axis=2))
+          tensor_input_boxes = util.bbox_transform2(tf.unstack(self.box_input, axis=2))
+        else:
+          tensor_det_boxes = util.bbox_transform(tf.unstack(self.det_boxes, axis=2))
+          tensor_input_boxes = util.bbox_transform(tf.unstack(self.box_input, axis=2))
+
+        self.ious = self.ious.assign(
+            _tensor_iou(tensor_det_boxes, tensor_input_boxes)
+        )
       self._activation_summary(self.ious, 'conf_score')
 
     with tf.variable_scope('probability') as scope:

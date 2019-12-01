@@ -56,6 +56,11 @@ def batch_iou(boxes, box):
     print("IOU", inter, union)
   return inter/union
 
+def get_distance_measure(boxes, box):
+  distances = np.sqrt(np.add(np.square(np.subtract(boxes[:,0], box[0])),np.square(np.subtract(boxes[:,1], box[0]))))
+  assert len(distances) == len(boxes), "Get distance measure failed !!"
+  return distances
+
 def nms(boxes, probs, threshold):
   """Non-Maximum supression.
   Args:
@@ -151,9 +156,8 @@ def sparse_to_dense(sp_indices, output_shape, values, default_value=0):
   Return:
     A dense numpy N-D array with shape output_shape.
   """
-
   assert len(sp_indices) == len(values), \
-      'Length of sp_indices is not equal to length of values'
+      'Length of sp_indices is not equal to length of values '+str(len(sp_indices)) + " " + str(len(values))
 
   array = np.ones(output_shape) * default_value
   for idx, value in zip(sp_indices, values):
@@ -210,6 +214,16 @@ def bbox_transform2(bbox):
     out_box[2] = cx+w/2
     out_box[3] = cy+h/2
     out_box[4:8] = bbox[4:8]
+  return out_box
+
+def get_coordinates(box_center_x, box_center_y, pt_sine_thetas, pt_x):
+  EPSILON = 1e-8
+  out_box = [[]]*40
+  delta_y = tf.divide(tf.multiply(pt_sine_thetas, pt_x), (EPSILON + tf.sqrt(1-tf.square(pt_sine_thetas)))) # Sine theta is 1 if delta x = 0 so the epsilon should not change anything
+  y_coords = tf.concat([box_center_y, tf.add(delta_y, box_center_y)], axis=0)
+  x_coords = tf.concat([box_center_x, tf.add(pt_x, box_center_x)], axis=0)
+  out_box[0:20] = tf.unstack(x_coords, axis=0)
+  out_box[20:40] = tf.unstack(y_coords, axis=0)
   return out_box
 
 def bbox_transform_inv2(bbox):

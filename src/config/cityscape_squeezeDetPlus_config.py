@@ -26,7 +26,7 @@ def cityscape_squeezeDetPlus_config(mask_parameterization):
   mc.LOSS_COEF_CONF_NEG    = 100.0
   mc.LOSS_COEF_CLASS       = 1.0
 
-  mc.PLOT_PROB_THRESH      = 0.4
+  mc.PLOT_PROB_THRESH      = 0.5
   mc.NMS_THRESH            = 0.4
   mc.PROB_THRESH           = 0.005
   mc.TOP_N_DETECTION       = 64
@@ -41,6 +41,9 @@ def cityscape_squeezeDetPlus_config(mask_parameterization):
   mc.ANCHOR_PER_GRID       = 9
   if mask_parameterization == 8:
     mc.EIGHT_POINT_REGRESSION = True
+  elif mask_parameterization > 8:
+    mc.MULTI_POINT_REGRESSION = True
+    mc.EIGHT_POINT_REGRESSION = False
 
   return mc
 

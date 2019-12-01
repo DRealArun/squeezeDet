@@ -12,6 +12,7 @@ import os.path
 import sys
 import time
 import copy
+import math
 
 import numpy as np
 from six.moves import xrange
@@ -51,53 +52,81 @@ tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 tf.app.flags.DEFINE_integer('mask_parameterization', 4,
                             """Bounding box is 4, octagonal mask is 8. other values not supported""")
 
+def draw_mask(contour_poly, dim, color):
+  shuffled = np.zeros_like(contour_poly)
+  shuffled[:,0] = contour_poly[:,1]
+  shuffled[:,1] = contour_poly[:,0]
+  mask_from_contour = np.zeros(dim)
+  cv2.drawContours(mask_from_contour, np.int32([shuffled]), -1, color, thickness=-1)
+  return mask_from_contour
+
 def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
-  assert form == 'center' or form == 'diagonal', \
-      'bounding box format not accepted: {}.'.format(form)
-  bkp_im = copy.deepcopy(im)
-  ht, wd, ch = np.shape(im)
-  for bbox, label in zip(box_list, label_list):
-    if form == 'center':
-      if draw_masks:
-        raw_bounding_box = bbox
-        bbox = bbox_transform2(bbox)
+  if FLAGS.mask_parameterization <= 8:
+    assert form == 'center' or form == 'diagonal', \
+        'bounding box format not accepted: {}.'.format(form)
+    bkp_im = copy.deepcopy(im)
+    ht, wd, ch = np.shape(im)
+    for bbox, label in zip(box_list, label_list):
+      if form == 'center':
+        if draw_masks:
+          raw_bounding_box = bbox
+          bbox = bbox_transform2(bbox)
+        else:
+          bbox[0:4] = bbox_transform(bbox[0:4])
       else:
-        bbox[0:4] = bbox_transform(bbox[0:4])
-    else:
+        if draw_masks:
+          raw_bounding_box = bbox_transform_inv2(bbox)
+
+      xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
       if draw_masks:
-        raw_bounding_box = bbox_transform_inv2(bbox)
+        points = decode_parameterization(raw_bounding_box)
+        points = np.round(points)
+        points = np.array(points, 'int32')
 
-    xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
-    if draw_masks:
-      points = decode_parameterization(raw_bounding_box)
-      points = np.round(points)
-      points = np.array(points, 'int32')
+      l = label.split(':')[0] # text before "CLASS: (PROB)"
+      if cdict and l in cdict:
+        c = cdict[l] # if color dict is provided , use it
+      else:
+        if color == None: # if color is provided use it or use random colors
+          c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
+        else:
+          c = color
 
-    l = label.split(':')[0] # text before "CLASS: (PROB)"
-    if cdict and l in cdict:
-      c = cdict[l] # if color dict is provided , use it
-    else:
-      if color == None: # if color is provided use it or use random colors
+      # draw box
+      cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
+      # draw label
+      font = cv2.FONT_HERSHEY_DUPLEX
+      if draw_masks:
+        if fill:
+          color_mask = np.zeros((ht, wd, 3), np.uint8)
+          cv2.fillConvexPoly(color_mask, points, c)
+          im[color_mask > 0] = bkp_im[color_mask > 0]
+          im[color_mask > 0] = 0.6*im[color_mask > 0]  + 0.4*color_mask[color_mask > 0]
+        cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, c, 1)
+        for p in range(len(points)):
+          cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
+      else:
+        cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+  else:
+    bkp_im = copy.deepcopy(im)
+    ht, wd, ch = np.shape(im)
+    for bbox, label in zip(box_list, label_list):
+      centerx = bbox[0]
+      centery = bbox[1]
+      sin     = bbox[2:2+(20)-1]
+      x_differences = bbox[2+(20)-1:]
+      selection = [[centery, centerx]]
+      selection.extend([[(sin_t*x_d/(math.sqrt(1-sin_t**2)))+centery, x_d+centerx] for sin_t, x_d in zip(sin,x_differences)])
+      selection = np.asarray(selection)
+      if color == None:
         c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
       else:
         c = color
-
-    # draw box
-    cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
-    # draw label
-    font = cv2.FONT_HERSHEY_DUPLEX
-    if draw_masks:
-      if fill:
-        color_mask = np.zeros((ht, wd, 3), np.uint8)
-        cv2.fillConvexPoly(color_mask, points, c)
-        im[color_mask > 0] = bkp_im[color_mask > 0]
-        im[color_mask > 0] = 0.6*im[color_mask > 0]  + 0.4*color_mask[color_mask > 0]
-      cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, c, 1)
-      for p in range(len(points)):
-        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
-    else:
-      cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
-
+      mask_from_approximation = draw_mask(selection, np.shape(im), c)
+      # im[mask_from_approximation > 0] = bkp_im[mask_from_approximation > 0]
+      im[mask_from_approximation > 0] = 0.6*im[mask_from_approximation > 0]  + 0.4*mask_from_approximation[mask_from_approximation > 0]
+      font = cv2.FONT_HERSHEY_DUPLEX
+      cv2.putText(im, label, (int(np.mean(selection[:,1])), int(np.mean(selection[:,0]))), font, 0.3, c, 1)
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False):
@@ -108,7 +137,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
     _draw_box(
         images[i], bboxes[i],
         [mc.CLASS_NAMES[idx] for idx in labels[i]],
-        draw_masks=visualize_gt_masks, fill=True)
+        draw_masks=visualize_gt_masks, fill=True, color=(0, 255, 0))
 
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
@@ -124,14 +153,14 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (0, 0, 0), draw_masks=visualize_pred_masks, fill=False)
+        color=(0, 0, 255), draw_masks=visualize_pred_masks, fill=False)
 
 
 def train():
   """Train SqueezeDet model"""
   assert FLAGS.dataset == 'KITTI' or FLAGS.dataset == 'CITYSCAPE', \
       'Currently only support KITTI and CITYSCAPE datasets'
-  assert FLAGS.mask_parameterization in [4,8], 'Values other than 4 and 8 are not supported !'
+  assert FLAGS.mask_parameterization in [4,8,40], 'Values other than 4, 8 and 40 are not supported !'
 
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
@@ -224,6 +253,8 @@ def train():
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
                 [[i, aidx_per_batch[i][j], k] for k in range(FLAGS.mask_parameterization)])
+            if len(bbox_per_batch[i][j]) != 40:
+              print("Error value", bbox_per_batch[i][j])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -246,6 +277,7 @@ def train():
         box_input = model.box_input
         labels = model.labels
 
+      # print(len(bbox_indices), len(box_values), num_labels)
       feed_dict = {
           image_input: image_per_batch,
           input_mask: np.reshape(
