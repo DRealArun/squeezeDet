@@ -60,7 +60,7 @@ def draw_mask(contour_poly, dim, color):
   cv2.drawContours(mask_from_contour, np.int32([shuffled]), -1, color, thickness=-1)
   return mask_from_contour
 
-def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
+def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False, is_source=True):
   if FLAGS.mask_parameterization <= 8:
     assert form == 'center' or form == 'diagonal', \
         'bounding box format not accepted: {}.'.format(form)
@@ -111,13 +111,20 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     bkp_im = copy.deepcopy(im)
     ht, wd, ch = np.shape(im)
     for bbox, label in zip(box_list, label_list):
-      centerx = bbox[0]
-      centery = bbox[1]
-      sin     = bbox[2:2+(20)-1]
-      x_differences = bbox[2+(20)-1:]
-      selection = [[centery, centerx]]
-      selection.extend([[(sin_t*x_d/(math.sqrt(1-sin_t**2)))+centery, x_d+centerx] for sin_t, x_d in zip(sin,x_differences)])
+      if is_source:
+        centerx = bbox[0]
+        centery = bbox[1]
+        sin     = bbox[2:2+(20)-1]
+        x_differences = bbox[2+(20)-1:]
+        selection = [[centery, centerx]]
+        selection.extend([[(sin_t*x_d/(math.sqrt(1-sin_t**2) +1*10**-5))+centery, x_d+centerx] for sin_t, x_d in zip(sin,x_differences)])
+      else:
+        # bbox = np.asarray(bbox)
+        y_vals = bbox[1::2]
+        x_vals = bbox[0::2]
+        selection = [[y_val, x_val] for x_val, y_val in zip(x_vals, y_vals)]
       selection = np.asarray(selection)
+      # print(np.shape(selection), is_source)
       if color == None:
         c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
       else:
@@ -126,7 +133,7 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
       # im[mask_from_approximation > 0] = bkp_im[mask_from_approximation > 0]
       im[mask_from_approximation > 0] = 0.6*im[mask_from_approximation > 0]  + 0.4*mask_from_approximation[mask_from_approximation > 0]
       font = cv2.FONT_HERSHEY_DUPLEX
-      cv2.putText(im, label, (int(np.mean(selection[:,1])), int(np.mean(selection[:,0]))), font, 0.3, c, 1)
+      # cv2.putText(im, label, (int(np.mean(selection[:,1])), int(np.mean(selection[:,0]))), font, 0.3, c, 1)
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False):
@@ -142,18 +149,19 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
         batch_det_bbox[i], batch_det_prob[i], batch_det_class[i])
-
+    print(det_prob)
     keep_idx    = [idx for idx in range(len(det_prob)) \
                       if det_prob[idx] > mc.PLOT_PROB_THRESH]
     det_bbox    = [det_bbox[idx] for idx in keep_idx]
     det_prob    = [det_prob[idx] for idx in keep_idx]
     det_class   = [det_class[idx] for idx in keep_idx]
 
+    print(len(det_bbox), len(batch_det_bbox[i]))
     _draw_box(
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        color=(0, 0, 255), draw_masks=visualize_pred_masks, fill=False)
+        color=(0, 0, 255), draw_masks=visualize_pred_masks, fill=False, is_source=False)
 
 
 def train():
