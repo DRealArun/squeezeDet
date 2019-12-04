@@ -40,6 +40,7 @@ def batch_iou(boxes, box):
   Returns:
     ious: array of a float number in range [0, 1].
   """
+  EPSILON = 1e-8
   lr = np.maximum(
       np.minimum(boxes[:,0]+0.5*boxes[:,2], box[0]+0.5*box[2]) - \
       np.maximum(boxes[:,0]-0.5*boxes[:,2], box[0]-0.5*box[2]),
@@ -51,8 +52,8 @@ def batch_iou(boxes, box):
       0
   )
   inter = lr*tb
-  union = boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter
-  if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter:
+  union = (boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter)+EPSILON
+  if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter or 0 in union:
     print("IOU", inter, union)
   return inter/union
 

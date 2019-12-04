@@ -31,7 +31,7 @@ class cityscape(input_reader):
     self._image_idx = self._load_image_set_idx() 
     self.labels = csLabels
 
-    self.permitted_classes = ['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']
+    self.permitted_classes = sorted(['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle'])
     self._rois, self._poly = self._load_cityscape_annotations(mc.EIGHT_POINT_REGRESSION) # ignore self._poly if mc.EIGHT_POINT_REGRESSION = False
 
     self._perm_idx = None

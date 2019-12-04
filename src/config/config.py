@@ -26,7 +26,7 @@ def base_model_config(dataset='PASCAL_VOC'):
   elif cfg.DATASET == 'KITTI':
     cfg.CLASS_NAMES = ('car', 'pedestrian', 'cyclist')
   elif cfg.DATASET == 'CITYSCAPE':
-    cfg.CLASS_NAMES = ('person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle')
+    cfg.CLASS_NAMES = tuple(sorted(('person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle')))
 
   # number of categories to classify
   cfg.CLASSES = len(cfg.CLASS_NAMES)    
