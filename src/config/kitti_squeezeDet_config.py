@@ -11,13 +11,13 @@ def kitti_squeezeDet_config(mask_parameterization):
   assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
 
-  mc.IMAGE_WIDTH           = 1242
-  mc.IMAGE_HEIGHT          = 375
-  mc.BATCH_SIZE            = 20
+  mc.IMAGE_WIDTH           = 1248
+  mc.IMAGE_HEIGHT          = 384
+  mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
-  mc.DECAY_STEPS           = 40000
+  mc.DECAY_STEPS           = 10000
   mc.MAX_GRAD_NORM         = 1.0
   mc.MOMENTUM              = 0.9
   mc.LR_DECAY_FACTOR       = 0.5
@@ -44,7 +44,7 @@ def kitti_squeezeDet_config(mask_parameterization):
   return mc
 
 def set_anchors(mc):
-  H, W, B = 24, 78, 9
+  H, W, B = 23, 77, 9
   anchor_shapes = np.reshape(
       [np.array(
           [[  36.,  37.], [ 366., 174.], [ 115.,  59.],

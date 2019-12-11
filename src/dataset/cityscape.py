@@ -22,13 +22,14 @@ class cityscape(input_reader):
     input_reader.__init__(self, 'cityscape_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
-    self._image_path = os.path.join(self._data_root_path, 'training', 'image_2')
-    self._label_path = os.path.join(self._data_root_path, 'training', 'instance')
+    self._image_path = os.path.join(self._data_root_path, str(image_set), 'image_2')
+    self._label_path = os.path.join(self._data_root_path, str(image_set), 'instance')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
 
     # a list of string indices of images in the directory
     self._image_idx = self._load_image_set_idx() 
+    print("Image set chosen: ", self._image_set, "and number of samples: ", len(self._image_idx))
     self.labels = csLabels
 
     self.permitted_classes = sorted(['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle'])
@@ -142,6 +143,7 @@ class cityscape(input_reader):
         idx2annotation[index] = bboxes
         if include_8_point_masks:
           idx2polygons[index] = polygons
+    print("Rejected Image ids in", self._image_set, "- set are", rejected_image_ids)
     for id_val in rejected_image_ids:
       self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.
     return idx2annotation, idx2polygons

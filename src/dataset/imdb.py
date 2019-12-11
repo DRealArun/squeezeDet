@@ -8,6 +8,7 @@ import shutil
 
 from PIL import Image, ImageFont, ImageDraw
 import cv2
+import copy
 import numpy as np
 from utils.util import iou, batch_iou
 
@@ -21,7 +22,7 @@ class imdb(object):
     self._image_idx = []
     self._data_root_path = []
     self._rois = {}
-    self.mc = mc
+    self.mc = copy.deepcopy(mc)
 
     # batch reader
     self._perm_idx = None
@@ -96,10 +97,11 @@ class imdb(object):
 
     return images, scales
 
-  def read_batch(self, shuffle=True):
+  def read_batch(self, shuffle=True, wrap_around=True):
     """Read a batch of image and bounding box annotations.
     Args:
       shuffle: whether or not to shuffle the dataset
+      wrap_around: cyclic data extraction
     Returns:
       image_per_batch: images. Shape: batch_size x width x height x [b, g, r]
       label_per_batch: labels. Shape: batch_size x object_num
@@ -121,7 +123,12 @@ class imdb(object):
       if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
         batch_idx = self._image_idx[self._cur_idx:] \
             + self._image_idx[:self._cur_idx + mc.BATCH_SIZE-len(self._image_idx)]
-        self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        if wrap_around:
+          self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        else:
+          # Restart the counter if no-wrap-around is enabled
+          # This ensures all the validation examples are evaluated
+          self._cur_idx = 0
       else:
         batch_idx = self._image_idx[self._cur_idx:self._cur_idx+mc.BATCH_SIZE]
         self._cur_idx += mc.BATCH_SIZE

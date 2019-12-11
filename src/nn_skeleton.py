@@ -75,12 +75,12 @@ class ModelSkeleton:
     self.mc = mc
     # a scalar tensor in range (0, 1]. Usually set to 0.5 in training phase and
     # 1.0 in evaluation phase
-    self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
+    # self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
     if self.mc.EIGHT_POINT_REGRESSION:
       self.num_mask_params = 8
     else:
       self.num_mask_params = 4
-
+    self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],

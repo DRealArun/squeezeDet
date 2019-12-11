@@ -45,7 +45,7 @@ def cityscape_res50_config(mask_parameterization):
   return mc
 
 def set_anchors(mc):
-  H, W, B = 31, 63, 9
+  H, W, B = 32, 64, 9 # if 31 and 63 there is miss-match in dimensions
   anchor_shapes = np.reshape(
       [np.array(
           [[15.93, 16.07], [34.82, 37.27], [34.32, 70.14],

@@ -13,7 +13,7 @@ def kitti_res50_config(mask_parameterization):
 
   mc.IMAGE_WIDTH           = 1242
   mc.IMAGE_HEIGHT          = 375
-  mc.BATCH_SIZE            = 20
+  mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01

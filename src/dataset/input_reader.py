@@ -156,10 +156,11 @@ class input_reader(imdb):
     mask_vector = [center_x, center_y, width, height, offsets[0], offsets[1], offsets[2], offsets[3]]
     return mask_vector
 
-  def read_batch(self, shuffle=True):
+  def read_batch(self, shuffle=True, wrap_around=True):
     """Read a batch of image and instance annotations.
     Args:
       shuffle: whether or not to shuffle the dataset
+      wrap_around: cyclic data extraction
     Returns:
       image_per_batch: images. Shape: batch_size x width x height x [b, g, r]
       label_per_batch: labels. Shape: batch_size x object_num
@@ -178,10 +179,16 @@ class input_reader(imdb):
       batch_idx = self._perm_idx[self._cur_idx:self._cur_idx+mc.BATCH_SIZE]
       self._cur_idx += mc.BATCH_SIZE
     else:
+      # Check for warp around only in non shuffle mode
       if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
         batch_idx = self._image_idx[self._cur_idx:] \
             + self._image_idx[:self._cur_idx + mc.BATCH_SIZE-len(self._image_idx)]
-        self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        if wrap_around:
+          self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        else:
+          # Restart the counter if no-wrap-around is enabled
+          # This ensures all the validation examples are evaluated
+          self._cur_idx = 0
       else:
         batch_idx = self._image_idx[self._cur_idx:self._cur_idx+mc.BATCH_SIZE]
         self._cur_idx += mc.BATCH_SIZE

@@ -46,10 +46,11 @@ tf.app.flags.DEFINE_string('pretrained_model_path', '',
 tf.app.flags.DEFINE_integer('summary_step', 10,
                             """Number of steps to save summary.""")
 tf.app.flags.DEFINE_integer('checkpoint_step', 1000,
-                            """Number of steps to save summary.""")
+                            """Number of steps to save checkpoint.""")
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 tf.app.flags.DEFINE_integer('mask_parameterization', 4,
                             """Bounding box is 4, octagonal mask is 8. other values not supported""")
+tf.app.flags.DEFINE_boolean('eval_valid', False, """Evaluate on validation set every summary step ?""")
 
 def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
@@ -70,7 +71,7 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
     if draw_masks:
       points = decode_parameterization(raw_bounding_box)
-      points = np.round(points)
+      points = np.round(points) # Ensure rounding
       points = np.array(points, 'int32')
 
     l = label.split(':')[0] # text before "CLASS: (PROB)"
@@ -83,7 +84,7 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
         c = color
 
     # draw box
-    cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
+    cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
     # draw label
     font = cv2.FONT_HERSHEY_DUPLEX
     if draw_masks:
@@ -91,12 +92,12 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
         color_mask = np.zeros((ht, wd, 3), np.uint8)
         cv2.fillConvexPoly(color_mask, points, c)
         im[color_mask > 0] = bkp_im[color_mask > 0]
-        im[color_mask > 0] = 0.6*im[color_mask > 0]  + 0.4*color_mask[color_mask > 0]
-      cv2.putText(im, label, (int(raw_bounding_box[0]), int(raw_bounding_box[1])), font, 0.3, c, 1)
+        im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
+      cv2.putText(im, label, (xmin, ymin), font, 0.3, c, 1)
       for p in range(len(points)):
-        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c)
+        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
     else:
-      cv2.putText(im, label, (xmin, ymax), font, 0.3, c, 1)
+      cv2.putText(im, label, (xmin, ymin), font, 0.3, c, 1)
 
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
@@ -173,11 +174,21 @@ def train():
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
 
+    imdb_valid = None
     if FLAGS.dataset == 'KITTI':
       imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+      if FLAGS.eval_valid:
+        imdb_valid = kitti('val', FLAGS.data_path, mc)
+        imdb_valid.mc.DATA_AUGMENTATION = False
     elif FLAGS.dataset == 'CITYSCAPE':
       imdb = cityscape(FLAGS.image_set, FLAGS.data_path, mc)
+      if FLAGS.eval_valid:
+        imdb_valid = cityscape('val', FLAGS.data_path, mc)
+        imdb_valid.mc.DATA_AUGMENTATION = False
 
+    print("Training model config:", imdb.mc.DATA_AUGMENTATION)
+    if imdb_valid != None:
+      print("Validation model config:", imdb_valid.mc.DATA_AUGMENTATION)
     # save model size, flops, activations by layers
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
       f.write('Number of parameter by layer:\n')
@@ -191,6 +202,7 @@ def train():
       f.write('\nActivation size by layer:\n')
       for c in model.activation_counter:
         f.write('\t{}: {}\n'.format(c[0], c[1]))
+
         count += c[1]
       f.write('\ttotal: {}\n'.format(count))
 
@@ -204,10 +216,17 @@ def train():
     print ('Model statistics saved to {}.'.format(
       os.path.join(FLAGS.train_dir, 'model_metrics.txt')))
 
-    def _load_data(load_to_placeholder=True):
+    def _load_data(load_to_placeholder=True, eval_valid=False):
       # read batch input
-      image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-          bbox_per_batch = imdb.read_batch()
+      if eval_valid:
+        # Only for validation set
+        image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
+          bbox_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
+        keep_prob_value = 1.0
+      else:
+        image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
+            bbox_per_batch = imdb.read_batch()
+        keep_prob_value = mc.DROP_OUT_PROB
 
       label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
           = [], [], [], [], []
@@ -263,6 +282,7 @@ def train():
               label_indices,
               [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
               [1.0]*len(label_indices)),
+          model.keep_prob: keep_prob_value
       }
 
       return feed_dict, image_per_batch, label_per_batch, bbox_per_batch
@@ -286,18 +306,24 @@ def train():
 
     init = tf.global_variables_initializer()
     sess.run(init)
-
+    glb_step = sess.run(model.global_step)
+    print("Global step before restore:", glb_step)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     if ckpt and ckpt.model_checkpoint_path:
       saver.restore(sess, ckpt.model_checkpoint_path)
-      global_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1])
-      print("Found checkpoint step: ", global_step)
+      print("Found checkpoint at step: ", int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]))
     else:
-      global_step = 0
       print("Checkpoint not found !")
-
+    glb_step = sess.run(model.global_step)
+    print("Global step after restore:", glb_step)
     summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
-
+    with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
+      f.write("Global step after restore: "+str(glb_step)+"\n")
+    f.close()
+    if FLAGS.eval_valid:
+      with open(os.path.join(FLAGS.train_dir, 'validation_metrics.txt'), 'a') as f:
+        f.write("Global step after restore: "+str(glb_step)+"\n")
+      f.close()
     coord = tf.train.Coordinator()
 
     if mc.NUM_THREAD > 0:
@@ -312,7 +338,7 @@ def train():
     run_options = tf.RunOptions(timeout_in_ms=60000)
 
     # try: 
-    for step in xrange(global_step, FLAGS.max_steps):
+    for step in xrange(glb_step, FLAGS.max_steps):
       if coord.should_stop():
         sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
         coord.request_stop()
@@ -333,25 +359,89 @@ def train():
             conf_loss, bbox_loss, class_loss = sess.run(
                 op_list, feed_dict=feed_dict)
 
-        visualize_gt_masks = False
-        visualize_pred_masks = False
-        if mc.EIGHT_POINT_REGRESSION:
-          visualize_gt_masks = True
-          visualize_pred_masks = True
+        # Dont visualize the training examples
+        # visualize_gt_masks = False
+        # visualize_pred_masks = False
+        # if mc.EIGHT_POINT_REGRESSION:
+        #   visualize_gt_masks = True
+        #   visualize_pred_masks = True
 
-        _viz_prediction_result(
-            model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-            det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
-        image_per_batch = bgr_to_rgb(image_per_batch)
-        viz_summary = sess.run(
-            model.viz_op, feed_dict={model.image_to_show: image_per_batch})
+        # _viz_prediction_result(
+        #     model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
+        #     det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
+        # image_per_batch = bgr_to_rgb(image_per_batch)
+        # viz_summary = sess.run(
+        #     model.viz_op, feed_dict={model.image_to_show: image_per_batch})
 
         summary_writer.add_summary(summary_str, step)
-        summary_writer.add_summary(viz_summary, step)
-        summary_writer.flush()
+        # summary_writer.add_summary(viz_summary, step)
+        # summary_writer.flush()
+        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+              format(loss_value, conf_loss, bbox_loss, class_loss))
+        with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
+          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+              format(step, loss_value, conf_loss, bbox_loss, class_loss))
+        f.close()
+        if FLAGS.eval_valid:
+          print ('\n!! Validation Set evaluation at step ', step, ' !!')
+          with open(os.path.join(FLAGS.train_dir, 'validation_metrics.txt'), 'a') as f:
+            f.write('\n!! Validation Set evaluation at step '+str(step)+' !!\n')
+            # Disable dropout for validation evaluation
+            old_keep_prob = model.keep_prob
+            loss_list = []
+            batch_nr = 0
+            while True:
+              batch_nr += 1
+              if len(imdb_valid._image_idx) % mc.BATCH_SIZE > 0:
+                # if batch_size unevenly divides the number of samples.
+                # then number of batches is one more than the actual num of batches
+                num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE) + 1
+              else:
+                num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE)
+              if batch_nr > num_of_batches:
+                break
+              feed_dict_val, image_per_batch_val, label_per_batch_val, bbox_per_batch_val = \
+                  _load_data(load_to_placeholder=False, eval_valid=True)
+              op_list_val = [
+                  model.loss, model.conf_loss, model.bbox_loss, \
+                  model.class_loss, model.det_boxes, \
+                  model.det_probs, model.det_class,
+              ]
+              loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, det_boxes_val, \
+                det_probs_val, det_class_val = sess.run(op_list_val, feed_dict=feed_dict_val)
+              if batch_nr == 1:
+                # Sample the first batch for visualization
+                visualize_gt_masks = False
+                visualize_pred_masks = False
+                if mc.EIGHT_POINT_REGRESSION:
+                  visualize_gt_masks = True
+                  visualize_pred_masks = True
+                _viz_prediction_result(
+                    model, image_per_batch_val, bbox_per_batch_val, label_per_batch_val, det_boxes_val,
+                    det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks)
+                image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
 
-        print ('conf_loss: {}, bbox_loss: {}, class_loss: {}'.
-            format(conf_loss, bbox_loss, class_loss))
+              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])
+              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val))
+            loss_list = np.asarray(loss_list)
+            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3])]
+            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3])]
+            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
+            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
+            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+            # Visualize the validation examples
+            if len(image_per_batch_visualize) != 0:
+              viz_summary = sess.run(
+                  model.viz_op, feed_dict={model.image_to_show: image_per_batch_visualize})
+              summary_writer.add_summary(viz_summary, step)
+            summary_writer.flush()
+          f.close()
       else:
         if mc.NUM_THREAD > 0:
           _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
@@ -377,11 +467,16 @@ def train():
                       'sec/batch)')
         print (format_str % (datetime.now(), step, loss_value,
                              images_per_sec, sec_per_batch))
+        with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
+          f.write(format_str % (datetime.now(), step, loss_value,
+                             images_per_sec, sec_per_batch) + '\n')
+        f.close()
         sys.stdout.flush()
 
       # Save the model checkpoint periodically.
       if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
         checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+        print("Checkpointing at ", step)
         saver.save(sess, checkpoint_path, global_step=step)
     # except Exception, e:
     #   coord.request_stop(e)
