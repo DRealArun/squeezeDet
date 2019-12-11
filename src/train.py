@@ -86,6 +86,7 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     # draw box
     cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
     # draw label
+    y_lim = max(ymin-3, 0)
     font = cv2.FONT_HERSHEY_DUPLEX
     if draw_masks:
       if fill:
@@ -93,11 +94,11 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
         cv2.fillConvexPoly(color_mask, points, c)
         im[color_mask > 0] = bkp_im[color_mask > 0]
         im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
-      cv2.putText(im, label, (xmin, ymin), font, 0.3, c, 1)
+      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
       for p in range(len(points)):
         cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
     else:
-      cv2.putText(im, label, (xmin, ymin), font, 0.3, c, 1)
+      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
 
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
@@ -186,9 +187,9 @@ def train():
         imdb_valid = cityscape('val', FLAGS.data_path, mc)
         imdb_valid.mc.DATA_AUGMENTATION = False
 
-    print("Training model config:", imdb.mc.DATA_AUGMENTATION)
+    print("Training model data augmentation:", imdb.mc.DATA_AUGMENTATION)
     if imdb_valid != None:
-      print("Validation model config:", imdb_valid.mc.DATA_AUGMENTATION)
+      print("Validation model data augmentation:", imdb_valid.mc.DATA_AUGMENTATION)
     # save model size, flops, activations by layers
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
       f.write('Number of parameter by layer:\n')
@@ -359,23 +360,23 @@ def train():
             conf_loss, bbox_loss, class_loss = sess.run(
                 op_list, feed_dict=feed_dict)
 
-        # Dont visualize the training examples
-        # visualize_gt_masks = False
-        # visualize_pred_masks = False
-        # if mc.EIGHT_POINT_REGRESSION:
-        #   visualize_gt_masks = True
-        #   visualize_pred_masks = True
-
-        # _viz_prediction_result(
-        #     model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-        #     det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
-        # image_per_batch = bgr_to_rgb(image_per_batch)
-        # viz_summary = sess.run(
-        #     model.viz_op, feed_dict={model.image_to_show: image_per_batch})
-
         summary_writer.add_summary(summary_str, step)
-        # summary_writer.add_summary(viz_summary, step)
-        # summary_writer.flush()
+        # Visualize the training examples only if validation is not enabled
+        if not FLAGS.eval_valid:
+          visualize_gt_masks = False
+          visualize_pred_masks = False
+          if mc.EIGHT_POINT_REGRESSION:
+            visualize_gt_masks = True
+            visualize_pred_masks = True
+
+          _viz_prediction_result(
+              model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
+              det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
+          image_per_batch = bgr_to_rgb(image_per_batch)
+          viz_summary = sess.run(
+              model.viz_op, feed_dict={model.image_to_show: image_per_batch})
+          summary_writer.add_summary(viz_summary, step)
+        
         print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
               format(loss_value, conf_loss, bbox_loss, class_loss))
         with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
@@ -440,8 +441,8 @@ def train():
               viz_summary = sess.run(
                   model.viz_op, feed_dict={model.image_to_show: image_per_batch_visualize})
               summary_writer.add_summary(viz_summary, step)
-            summary_writer.flush()
           f.close()
+        summary_writer.flush()
       else:
         if mc.NUM_THREAD > 0:
           _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
