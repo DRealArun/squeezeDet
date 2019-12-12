@@ -60,8 +60,16 @@ def decode_parameterization(mask_vector):
   points = [pts[0], pts[1], pts[1], pts[2], pts[2], pts[3], pts[3], pts[0]]
   eq1s = [xmin, xmin, ymax, ymax, xmax, xmax, ymin, ymin]
   vert_or_hors = ["vert", "vert", "hor", "hor", "vert", "vert", "hor", "hor"]
-  m1 = (pts[2][1]-pts[0][1])/(pts[2][0]-pts[0][0])
-  m2 = (pts[3][1]-pts[1][1])/(pts[3][0]-pts[1][0])
+  EPSILON = 1e-8
+  dr1 = (pts[2][0]-pts[0][0])
+  if dr1 == 0:
+    dr1 = EPSILON
+  dr2 = (pts[3][0]-pts[1][0])
+  if dr2 == 0:
+    dr2 = EPSILON
+  m1 = (pts[2][1]-pts[0][1])/dr1
+  m2 = (pts[3][1]-pts[1][1])/dr2
+  assert m1 != 0 and m2 != 0, "Slopes are zero in _get_intersecting_point"
   ms = [-1/m1, -1/m2, -1/m2, -1/m1, -1/m1, -1/m2, -1/m2, -1/m1]
   intersecting_pts = []
   for eq1, pt, vert_hor, m in zip(eq1s, points, vert_or_hors, ms):
@@ -298,14 +306,15 @@ class input_reader(imdb):
           mask_vector = self._get_8_point_mask(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
           center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
           if width == 0 or height == 0:
-            print("Error width and height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
-            # del label_per_batch[img_ct][k]
-            # continue #ONLY FOR COMPLETE SET OF CLASSES
-          assert not (of1 < 0 or of2 < 0 or of3 < 0 or of4 < 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
+            print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
+            del label_per_batch[img_ct][k]
+            continue
+          assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
           points = decode_parameterization(mask_vector)
           points = np.round(points)
           points = np.array(points, 'int32')
-          assert not (points[0][1] - points[1][1] > 1 or points[2][0] - points[3][0] > 1 or points[5][1] - points[4][1] > 1 or points[7][0] - points[6][0] > 1), "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
+          assert not ((points[0][1] - points[1][1]) > 1 or (points[2][0] - points[3][0]) > 1 or (points[5][1] - points[4][1]) > 1 or (points[7][0] - points[6][0]) > 1), \
+            "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
           gt_bbox.append(mask_vector)
 
       bbox_per_batch.append(gt_bbox)
@@ -313,7 +322,6 @@ class input_reader(imdb):
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
       for i in range(len(gt_bbox)):
-        encompassing_box = gt_bbox[i][0:4]
         overlaps = batch_iou(mc.ANCHOR_BOX, gt_bbox[i])
         aidx = len(mc.ANCHOR_BOX)
         for ov_idx in np.argsort(overlaps)[::-1]:
@@ -351,7 +359,7 @@ class input_reader(imdb):
 
         delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
         delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
-        delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2])
+        delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2]) # if box_w or box_h = 0, the box is not included
         delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
         if mc.EIGHT_POINT_REGRESSION:

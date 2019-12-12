@@ -387,8 +387,6 @@ def train():
           print ('\n!! Validation Set evaluation at step ', step, ' !!')
           with open(os.path.join(FLAGS.train_dir, 'validation_metrics.txt'), 'a') as f:
             f.write('\n!! Validation Set evaluation at step '+str(step)+' !!\n')
-            # Disable dropout for validation evaluation
-            old_keep_prob = model.keep_prob
             loss_list = []
             batch_nr = 0
             while True:

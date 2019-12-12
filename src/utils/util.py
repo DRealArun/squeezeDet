@@ -52,9 +52,9 @@ def batch_iou(boxes, box):
       0
   )
   inter = lr*tb
-  union = (boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter)+EPSILON
-  if math.nan in union or math.inf in union or math.nan in inter or math.inf in inter or 0 in union:
-    print("IOU", inter, union)
+  union = (boxes[:,2]*boxes[:,3] + box[2]*box[3] - inter) + EPSILON
+  condition = math.nan in union or math.inf in union or math.nan in inter or math.inf in inter or 0 in union
+  assert not condition, "Error in IOU: "+ str(inter)+" "+str(union)
   return inter/union
 
 def nms(boxes, probs, threshold):
