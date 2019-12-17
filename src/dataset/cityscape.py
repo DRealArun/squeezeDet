@@ -32,7 +32,7 @@ class cityscape(input_reader):
     print("Image set chosen: ", self._image_set, "and number of samples: ", len(self._image_idx))
     self.labels = csLabels
 
-    self.permitted_classes = sorted(['person', 'rider', 'car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle'])
+    self.permitted_classes = sorted(['person', 'rider', 'car', 'truck', 'bus', 'motorcycle', 'bicycle'])
     self._rois, self._poly = self._load_cityscape_annotations(mc.EIGHT_POINT_REGRESSION) # ignore self._poly if mc.EIGHT_POINT_REGRESSION = False
 
     self._perm_idx = None
@@ -95,9 +95,10 @@ class cityscape(input_reader):
     mask_vector = [xmin, ymin, xmax, ymax, center_x, center_y, width, height]
     return mask_vector
 
-  def _load_cityscape_annotations(self, include_8_point_masks=False):
+  def _load_cityscape_annotations(self, include_8_point_masks=False, threshold=10):
     """Load the cityscape instance segmentation annotations.
     Args: include_8_point_masks: a boolean representing if we need to extract 8 point mask parameterization
+          threshold: a threshold to filter objects whose width or height are less than threshold
     Returns:
       idx2annotation: dictionary mapping image name to the bounding box parameters
       idx2polygons: dictionary mapping image name to the raw binary mask polygons or None depending on include_8_point_masks. 
@@ -127,15 +128,17 @@ class cityscape(input_reader):
             cls = self._class_to_idx[modified_name]
             vector = self.get_bounding_box_parameterization(polygon, imgHeight, imgWidth) 
             xmin, ymin, xmax, ymax, cx, cy, w, h = vector
-            assert xmin >= 0.0 and xmin <= xmax, \
-                'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
-                    .format(xmin, xmax, index)
-            assert ymin >= 0.0 and ymin <= ymax, \
-                'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
-                    .format(ymin, ymax, index)
-            bboxes.append([cx, cy, w, h, cls])
-            if include_8_point_masks:
-              polygons.append([imgHeight, imgWidth, polygon])
+            if w >= threshold or h >= threshold:
+              # Filter objects which are less than threshold
+              assert xmin >= 0.0 and xmin <= xmax, \
+                  'Invalid bounding box x-coord xmin {} or xmax {} at {}.txt' \
+                      .format(xmin, xmax, index)
+              assert ymin >= 0.0 and ymin <= ymax, \
+                  'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
+                      .format(ymin, ymax, index)
+              bboxes.append([cx, cy, w, h, cls])
+              if include_8_point_masks:
+                polygons.append([imgHeight, imgWidth, polygon])
       # assert len(bboxes) !=0, "Error here empty bounding box appending"+str(bboxes)
       if len(bboxes) == 0:
         rejected_image_ids.append(index)

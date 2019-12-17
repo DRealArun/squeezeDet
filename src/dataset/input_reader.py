@@ -114,7 +114,6 @@ class input_reader(imdb):
       mask vector: [cx, cy, w, h, of1, of2, of3, of4]
     """
     outline = np.array(polygon)
-    rr, cc = outline[:,1], outline[:,0]
     rrr, ccc = outline[:,1], outline[:,0]
     rr = []
     cc = []

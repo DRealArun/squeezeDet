@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def cityscape_res50_config(mask_parameterization):
+def cityscape_res50_config(mask_parameterization, log_anchors):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
@@ -36,7 +36,7 @@ def cityscape_res50_config(mask_parameterization):
   mc.DRIFT_Y               = 100
   mc.EXCLUDE_HARD_EXAMPLES = False
 
-  mc.ANCHOR_BOX            = set_anchors(mc)
+  mc.ANCHOR_BOX            = set_anchors(mc, log_anchors)
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
   if mask_parameterization == 8:
@@ -44,15 +44,26 @@ def cityscape_res50_config(mask_parameterization):
 
   return mc
 
-def set_anchors(mc):
+def set_anchors(mc, log_anchors):
   H, W, B = 32, 64, 9 # if 31 and 63 there is miss-match in dimensions
-  anchor_shapes = np.reshape(
+  if log_anchors:
+    print("Using Log domain extracted anchors")
+    anchor_shapes = np.reshape(
       [np.array(
-          [[15.93, 16.07], [34.82, 37.27], [34.32, 70.14],
-           [102.69, 66.61], [55.86, 122.26], [172.25, 116.73],
-           [96.53, 202.02], [273.93, 190.09], [196.36, 315.79]])] * H * W,
+          [[8.01, 11.25], [11.45, 26.49], [18.02, 13.88],
+           [21.40, 50.10], [31.07, 24.21], [42.67, 103.73],
+           [55.73, 42.22], [107.92, 76.43], [171.29, 181.58]])] * H * W,
       (H, W, B, 2)
-  )
+    )
+  else:
+    print("Using Spatial domain extracted anchors")
+    anchor_shapes = np.reshape(
+        [np.array(
+            [[17.31, 18.20], [35.13, 39.49], [99.93, 66.42],
+             [34.60, 73.31], [56.66, 125.19], [166.94, 114.14],
+             [94.15, 203.37], [257.57, 187.70], [196.69, 312.63]])] * H * W,
+        (H, W, B, 2)
+    )
   center_x = np.reshape(
       np.transpose(
           np.reshape(

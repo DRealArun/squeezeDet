@@ -51,6 +51,7 @@ tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
 tf.app.flags.DEFINE_integer('mask_parameterization', 4,
                             """Bounding box is 4, octagonal mask is 8. other values not supported""")
 tf.app.flags.DEFINE_boolean('eval_valid', False, """Evaluate on validation set every summary step ?""")
+tf.app.flags.DEFINE_boolean('log_anchors', False, """Use Log domain extracted anchors ?""")
 
 def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
@@ -118,6 +119,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
 
     keep_idx    = [idx for idx in range(len(det_prob)) \
                       if det_prob[idx] > mc.PLOT_PROB_THRESH]
+    print("Keep ids", keep_idx, max(det_prob))
     det_bbox    = [det_bbox[idx] for idx in keep_idx]
     det_prob    = [det_prob[idx] for idx in keep_idx]
     det_class   = [det_class[idx] for idx in keep_idx]
@@ -126,7 +128,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (0, 0, 0), draw_masks=visualize_pred_masks, fill=False)
+        (255, 255, 255), draw_masks=visualize_pred_masks, fill=False)
 
 
 def train():
@@ -146,7 +148,7 @@ def train():
       if FLAGS.dataset == 'KITTI':
         mc = kitti_vgg16_config(FLAGS.mask_parameterization)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_vgg16_config(FLAGS.mask_parameterization)
+        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = VGG16ConvDet(mc)
@@ -154,7 +156,7 @@ def train():
       if FLAGS.dataset == 'KITTI':
         mc = kitti_res50_config(FLAGS.mask_parameterization)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_res50_config(FLAGS.mask_parameterization)
+        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = ResNet50ConvDet(mc)
@@ -162,7 +164,7 @@ def train():
       if FLAGS.dataset == 'KITTI':
         mc = kitti_squeezeDet_config(FLAGS.mask_parameterization)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization)
+        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDet(mc)
@@ -170,7 +172,7 @@ def train():
       if FLAGS.dataset == 'KITTI':
         mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization)
+        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
