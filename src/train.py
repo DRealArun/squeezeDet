@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_string('year', '2007',
 tf.app.flags.DEFINE_string('train_dir', '/tmp/bichen/logs/squeezeDet/train',
                             """Directory where to write event logs """
                             """and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 1000000,
+tf.app.flags.DEFINE_integer('max_steps', 200000,
                             """Maximum number of batches to run.""")
 tf.app.flags.DEFINE_string('net', 'squeezeDet',
                            """Neural net architecture. """)
@@ -301,8 +301,8 @@ def train():
             print ("added to the queue")
         if mc.DEBUG_MODE:
           print ("Finished enqueue")
-      except Exception as e:
-        coord.request_stop(e)
+      except tf.errors.CancelledError:
+        coord.request_stop()
 
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
@@ -486,6 +486,9 @@ def train():
     # finally:
     #   coord.request_stop()
     #   coord.join(threads)
+    sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+    coord.request_stop()
+    coord.join(threads)
 
 def main(argv=None):  # pylint: disable=unused-argument
   if not tf.gfile.Exists(FLAGS.train_dir):
