@@ -119,7 +119,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
 
     keep_idx    = [idx for idx in range(len(det_prob)) \
                       if det_prob[idx] > mc.PLOT_PROB_THRESH]
-    print("Keep ids", keep_idx, max(det_prob))
+    # print("Keep ids", keep_idx, max(det_prob))
     det_bbox    = [det_bbox[idx] for idx in keep_idx]
     det_prob    = [det_prob[idx] for idx in keep_idx]
     det_class   = [det_class[idx] for idx in keep_idx]
@@ -150,7 +150,9 @@ def train():
       elif FLAGS.dataset == 'CITYSCAPE':
         mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
       mc.IS_TRAINING = True
-      mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
+      # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
+      print("Not using pretrained model for VGG, uncomment above line and comment below line to use pretrained model !")
+      mc.LOAD_PRETRAINED_MODEL = False
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
       if FLAGS.dataset == 'KITTI':
