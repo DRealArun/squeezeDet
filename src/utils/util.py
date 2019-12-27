@@ -154,7 +154,7 @@ def sparse_to_dense(sp_indices, output_shape, values, default_value=0):
   """
 
   assert len(sp_indices) == len(values), \
-      'Length of sp_indices is not equal to length of values'
+      'Length of sp_indices is not equal to length of values' + str(len(sp_indices)) + " " +str(len(values))
 
   array = np.ones(output_shape) * default_value
   for idx, value in zip(sp_indices, values):
@@ -211,6 +211,20 @@ def bbox_transform2(bbox):
     out_box[2] = cx+w/2
     out_box[3] = cy+h/2
     out_box[4:8] = bbox[4:8]
+  return out_box
+
+def bbox_transform24(bbox):
+  """convert a bbox of form [cx, cy, w, h] to [xmin, ymin, xmax, ymax]. Works
+  for numpy array or list of tensors.
+  """
+  with tf.variable_scope('bbox_transform2') as scope:
+    cx, cy, w, h = bbox[0:4]
+    out_box = [[]]*24
+    out_box[0] = cx-w/2
+    out_box[1] = cy-h/2
+    out_box[2] = cx+w/2
+    out_box[3] = cy+h/2
+    out_box[4:24] = bbox[4:24]
   return out_box
 
 def bbox_transform_inv2(bbox):

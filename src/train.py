@@ -23,6 +23,7 @@ from dataset import pascal_voc, kitti, cityscape
 from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform2, bbox_transform_inv2, bbox_transform
 from nets import *
 from dataset.input_reader import decode_parameterization
+import pywt
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -37,7 +38,7 @@ tf.app.flags.DEFINE_string('year', '2007',
 tf.app.flags.DEFINE_string('train_dir', '/tmp/bichen/logs/squeezeDet/train',
                             """Directory where to write event logs """
                             """and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 200000,
+tf.app.flags.DEFINE_integer('max_steps', 200001,
                             """Maximum number of batches to run.""")
 tf.app.flags.DEFINE_string('net', 'squeezeDet',
                            """Neural net architecture. """)
@@ -53,55 +54,117 @@ tf.app.flags.DEFINE_integer('mask_parameterization', 4,
 tf.app.flags.DEFINE_boolean('eval_valid', False, """Evaluate on validation set every summary step ?""")
 tf.app.flags.DEFINE_boolean('log_anchors', False, """Use Log domain extracted anchors ?""")
 
+# def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
+#   assert form == 'center' or form == 'diagonal', \
+#       'bounding box format not accepted: {}.'.format(form)
+#   bkp_im = copy.deepcopy(im)
+#   ht, wd, ch = np.shape(im)
+#   for bbox, label in zip(box_list, label_list):
+#     if form == 'center':
+#       if draw_masks:
+#         raw_bounding_box = bbox
+#         bbox = bbox_transform2(bbox)
+#       else:
+#         bbox[0:4] = bbox_transform(bbox[0:4])
+#     else:
+#       if draw_masks:
+#         raw_bounding_box = bbox_transform_inv2(bbox)
+
+#     xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
+#     if draw_masks:
+#       points = decode_parameterization(raw_bounding_box)
+#       points = np.round(points) # Ensure rounding
+#       points = np.array(points, 'int32')
+
+#     l = label.split(':')[0] # text before "CLASS: (PROB)"
+#     if cdict and l in cdict:
+#       c = cdict[l] # if color dict is provided , use it
+#     else:
+#       if color == None: # if color is provided use it or use random colors
+#         c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
+#       else:
+#         c = color
+
+#     # draw box
+#     cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
+#     # draw label
+#     y_lim = max(ymin-3, 0)
+#     font = cv2.FONT_HERSHEY_DUPLEX
+#     if draw_masks:
+#       if fill:
+#         color_mask = np.zeros((ht, wd, 3), np.uint8)
+#         cv2.fillConvexPoly(color_mask, points, c)
+#         im[color_mask > 0] = bkp_im[color_mask > 0]
+#         im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
+#       cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
+#       for p in range(len(points)):
+#         cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
+#     else:
+#       cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
+
+def reconstruct_contour(Ax, Ay):
+    #Partial_reconstruction
+    db1_r_p = pywt.Wavelet('haar')
+    reconstructed_x_par = pywt.waverec([Ax, np.zeros_like(Ax)], db1_r_p)
+    reconstructed_y_par = pywt.waverec([Ay, np.zeros_like(Ay)], db1_r_p)
+    x_vals = np.reshape(reconstructed_x_par, (-1,1))
+    y_vals = np.reshape(reconstructed_y_par, (-1,1))
+    contour = np.hstack((x_vals, y_vals)) # y first then x
+    contour = np.round(contour) # Ensure rounding
+    contour = np.array(contour, 'int32')
+    return contour
+
 def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
   bkp_im = copy.deepcopy(im)
   ht, wd, ch = np.shape(im)
   for bbox, label in zip(box_list, label_list):
-    if form == 'center':
-      if draw_masks:
-        raw_bounding_box = bbox
-        bbox = bbox_transform2(bbox)
-      else:
-        bbox[0:4] = bbox_transform(bbox[0:4])
-    else:
-      if draw_masks:
-        raw_bounding_box = bbox_transform_inv2(bbox)
-
-    xmin, ymin, xmax, ymax = [int(bbox[o]) for o in range(len(bbox)) if o < 4]
-    if draw_masks:
-      points = decode_parameterization(raw_bounding_box)
-      points = np.round(points) # Ensure rounding
-      points = np.array(points, 'int32')
-
-    l = label.split(':')[0] # text before "CLASS: (PROB)"
-    if cdict and l in cdict:
-      c = cdict[l] # if color dict is provided , use it
-    else:
-      if color == None: # if color is provided use it or use random colors
-        c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
-      else:
-        c = color
-
+    global_center_x = bbox[0]
+    global_center_y = bbox[1]
+    global_center_w = bbox[2]
+    global_center_h = bbox[3]
+    xmin_g = int(round(max(global_center_x - (global_center_w/2)-2, 0)))
+    ymin_g = int(round(max(global_center_y - (global_center_h/2)-2, 0)))
+    # coeff_x_rel = np.asarray(bbox[4:14])
+    # coeff_y_rel = np.asarray(bbox[14:24])
+    # contour_recon = reconstruct_contour(coeff_x_rel, coeff_y_rel) # Reconstruct the points x co-ord
+    x_vals = np.reshape(bbox[4:14], (-1,1))
+    y_vals = np.reshape(bbox[14:24], (-1,1))
+    contour_recon = np.hstack((x_vals, y_vals)) # y first then x
+    contour_recon = np.round(contour_recon) # Ensure rounding
+    contour_recon = np.array(contour_recon, 'int32')
+    contour_recon[:,0] = contour_recon[:,0] + xmin_g
+    contour_recon[:,1] = contour_recon[:,1] + ymin_g
+    if ':' in label:
+      print("Reconstructed Contours:", contour_recon)
+    # contour = np.hstack((x_vals, y_vals)) # y first then x
+    # contour = np.round(contour) # Ensure rounding
+    # contour = np.array(contour, 'int32')
     # draw box
+    c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
+    # xmin = min(contour_recon[:,0])
+    ymin = min(contour_recon[:,1])
+
+    xmin = int(round(global_center_x - (global_center_w/2)))
+    ymin = int(round(global_center_y - (global_center_h/2)))
+    xmax = int(round(global_center_x + (global_center_w/2)))
+    ymax = int(round(global_center_y + (global_center_h/2)))
     cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
     # draw label
     y_lim = max(ymin-3, 0)
     font = cv2.FONT_HERSHEY_DUPLEX
-    if draw_masks:
-      if fill:
-        color_mask = np.zeros((ht, wd, 3), np.uint8)
-        cv2.fillConvexPoly(color_mask, points, c)
-        im[color_mask > 0] = bkp_im[color_mask > 0]
-        im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
-      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
-      for p in range(len(points)):
-        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
-    else:
-      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
-
-
+    # if fill:
+    #   color_mask = np.zeros((ht, wd, 3), np.uint8)
+    #   cv2.fillConvexPoly(color_mask, contour, c)
+    #   im[color_mask > 0] = bkp_im[color_mask > 0]
+    #   im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
+    cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
+    for p in range(len(contour_recon)):
+      cv2.line(im, tuple(contour_recon[p]), tuple(contour_recon[(p+1)%len(contour_recon)]), c, 2)
+    # for p in contour:
+    #   cv2.circle(im, tuple(p), 3, c, -1)
+    
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False):
   mc = model.mc
@@ -247,7 +310,7 @@ def train():
                 [i, aidx_per_batch[i][j], label_per_batch[i][j]])
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(FLAGS.mask_parameterization)])
+                [[i, aidx_per_batch[i][j], k] for k in range(24)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -278,10 +341,10 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, FLAGS.mask_parameterization],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],
               box_delta_values),
           box_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, FLAGS.mask_parameterization],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],
               box_values),
           labels: sparse_to_dense(
               label_indices,

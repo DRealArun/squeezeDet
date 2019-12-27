@@ -12,6 +12,10 @@ from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
 from utils.util import iou, batch_iou
+import pywt
+from dataset.polysimplify_1 import VWSimplifier
+from skimage import measure
+import copy
 
 def decode_parameterization(mask_vector):
   """Decodes the octagonal parameterization of the mask to get
@@ -103,6 +107,323 @@ class input_reader(imdb):
     C = -c
     offset = abs((A*pt2_x + B*pt2_y + C))/((A**2+B**2)**(0.5))
     return offset
+
+  def get_importance_values(self, values, debug=False):
+    imp_list = []
+    for i in range(len(values)):
+        prev_val = values[i-1]
+        next_val = values[(i+1)%len(values)]
+        curr_val = values[i]
+        imp_val = (curr_val-prev_val) + (curr_val-next_val) # If it stands out, it is important
+        if debug:
+            print("Prev:", prev_val, "Curr:", curr_val, "Next:", next_val, "Imp Metric:", imp_val)
+        imp_list.append(imp_val)
+    return imp_list
+
+  def draw_mask(self, contour_poly, dim):
+    swapped = np.zeros_like(contour_poly)
+    swapped[:,0] = contour_poly[:,1]
+    swapped[:,1] = contour_poly[:,0]
+    mask_from_contour = np.zeros(dim)
+    cv2.drawContours(mask_from_contour, np.int32([swapped]), -1, (255),thickness=-1)
+    return mask_from_contour
+
+  def subsample_important_values(self, selected, max_num_elements):
+    simplifier = VWSimplifier(selected)
+    final_list, indices = simplifier.from_number(max_num_elements)
+    return indices
+
+  def get_wavelet_transform(self, contour_points):
+    db1 = pywt.Wavelet('haar') # TODO : dont hard-code HAAR
+    x = contour_points[:,0]
+    y = contour_points[:,1]
+    # https://en.wikipedia.org/wiki/Discrete_wavelet_transform
+    # cD : Detail coefficient output of high pass filtering
+    # cA : Approximation coefficient output of low pass filtering
+    _x_coeffs = pywt.wavedec(x, db1, mode='periodic', level=1) # Returns (cA, cD) hence (_x_coeffs[0], _x_coeffs[1]) = (cA, cD) 
+    _y_coeffs = pywt.wavedec(y, db1, mode='periodic', level=1) # Returns (cA, cD)  
+    return _x_coeffs, _y_coeffs
+
+  def check_if_significant_with_slope_1(self, sel, val, stepx=10, stepy=10, slope_thresh=10**(-3)): # filter based on distance from last keypoint
+    angle = 0
+    if len(sel) != 0:
+      diff = np.square(np.subtract(sel[-1], val))
+      dist = np.sqrt(np.sum(diff))
+      if diff[0] == 0:
+        angle = 90
+      else:
+        angle = np.arctan(diff[1]/diff[0]) * 180 / np.pi
+      # print("diff", diff, angle)
+      flag = 1
+      if angle < slope_thresh or (90-angle) < slope_thresh:
+        if dist < (stepx**2+stepy**2)**(0.5):
+          flag = 0
+    else:
+      flag = 1
+    return flag
+
+  def wavelet_based_key_point_extractor_3(self, values, max_num, dim=(512, 1024)):
+    coeffs_x, coeffs_y = self.get_wavelet_transform(values)
+    if len(coeffs_x[0]) == max_num: #less than max_num is unlikely
+      Ax_ = coeffs_x[0] # Gather low freq co-efficents along x
+      Ay_ = coeffs_y[0] # Gather low freq co-efficents along y
+      # print("Length of list", len(Ax_))
+      indices = list(range(len(coeffs_x[0])))
+      indices = np.squeeze(indices)
+      return Ax_, Ay_, values[indices*2]
+    else:
+      indices = list(range(len(coeffs_x[0])))
+      indices = np.squeeze(indices)
+      # print("After DWT", len(indices))
+      selection = []
+      id_list = []
+      stepx_val = dim[1]/(16)
+      stepy_val = dim[0]/(16)
+      for ida in indices:
+        if self.check_if_significant_with_slope_1(selection, values[ida*2], stepx=stepx_val, stepy=stepy_val, slope_thresh=30):
+          selection.append(values[ida*2])
+          id_list.append(ida)
+      # print("After First Stage filtering", len(selection))
+      sec_stage_indices = self.subsample_important_values(selection, max_num)[0]
+      reduced_id_list = []
+      for sec_id in sec_stage_indices:
+        ida = id_list[sec_id]
+        reduced_id_list.append(ida)
+      id_list = reduced_id_list
+      # print("After Second Stage filtering", len(id_list))
+      if len(reduced_id_list) < max_num:
+        # Select values from the list obtained after first stage of filtering
+        distances = []
+        whole_list = set(id_list)                
+        current_selection = set(reduced_id_list)
+        not_selected = whole_list - current_selection
+        num_missing_vals = max_num - len(current_selection)
+        if len(not_selected) < num_missing_vals:
+          # Select values from the list obtained after extracting the indices
+          whole_list = set(indices)
+          current_selection = set(reduced_id_list)
+          not_selected = whole_list - current_selection
+          num_missing_vals = max_num - len(current_selection)
+        if len(not_selected) > num_missing_vals:
+          not_selected_points = values[list(not_selected)]
+          selected_points = values[list(current_selection)]
+          for pt in not_selected_points:
+            distances.append(np.sum(np.sqrt(np.sum(np.square(np.subtract(selected_points, pt)), axis=1))))
+          sorted_indices = np.argsort(distances)[::-1]
+          not_selected = list(not_selected)
+          newly_selected = [not_selected[idx] for idx in sorted_indices[0:num_missing_vals]]
+          final_selected = [[]] * max_num
+          final_selected[0:len(current_selection)] = current_selection
+          final_selected[len(selected_points):] = newly_selected
+          whole_list = list(whole_list)
+          order = [whole_list.index(ele) for ele in final_selected]
+          final_order_indices = np.argsort(order)
+          final_selected = np.array(final_selected)[final_order_indices].tolist()
+        else:
+          whole_list = list(whole_list)
+          final_selected = copy.deepcopy(whole_list)
+          for count in range(max_num-len(whole_list)):
+            index_to_insert = random.choice(range(len(whole_list)))
+            final_selected.insert(index_to_insert, whole_list[index_to_insert])
+          order = [whole_list.index(ele) for ele in final_selected]
+          final_order_indices = np.argsort(order)
+          final_selected = np.array(final_selected)[final_order_indices].tolist()    
+        id_list = final_selected
+        # print("Length of list", len(id_list))
+      Ax_ = coeffs_x[0][id_list] # Gather low freq co-efficents along x
+      Ay_ = coeffs_y[0][id_list] # Gather low freq co-efficents along y
+      # print("Length of list", len(Ax_))
+      return Ax_, Ay_, values[np.asarray(id_list)*2]
+
+  def get_mask(self, polygon, imh, imw, divider=1):
+    polygon = np.round(polygon) # Ensure rounding
+    polygon = np.int32(polygon)
+    polygon = [polygon]
+    mask = np.zeros((imh,imw))
+    mask = cv2.fillPoly(mask, polygon, color=255)
+    mask_reshaped = cv2.resize(mask, (imw//divider, imh//divider), interpolation = cv2.INTER_AREA)
+    ret, mask_reshaped = cv2.threshold(mask_reshaped, 127, 255, 0)
+#     print(np.unique(mask_reshaped))
+    return mask_reshaped
+
+  def get_key_points(self, polymask, max_num, key_point_extractor, dim):
+    h, w = dim
+    outline = polymask
+    rrr, ccc = outline[:,1], outline[:,0]
+    rr = []
+    cc = []
+    for r in rrr:
+      if r < 0:
+        r = 0
+      if r > h:
+        r = h
+      rr.append(r)
+    for c in ccc:
+      if c < 0:
+        c = 0
+      if c > w:
+        c = w
+      cc.append(c)
+    rr = np.array(rr)
+    cc = np.array(cc)
+    xmin = max(min(cc), 0)
+    xmax = min(max(cc), w)
+    ymin = max(min(rr), 0)
+    ymax = min(max(rr), h)
+    width       = xmax - xmin
+    height      = ymax - ymin
+    if width <= 0:
+      print("Max and min x values", xmax, xmin, w)
+    if height <= 0:
+      print("Max and min y values", ymax, ymin, h)
+    center_x  = xmin + 0.5*width 
+    center_y  = ymin + 0.5*height
+
+    # Create mask from polygon
+    mask_image = self.get_mask(polymask, dim[0], dim[1], divider=1)
+    xmin = int(round(max(min(polymask[:,0])-2, 0)))
+    xmax = int(round(min(max(polymask[:,0])+2, dim[1])))
+    ymin = int(round(max(min(polymask[:,1])-2, 0)))
+    ymax = int(round(min(max(polymask[:,1])+2, dim[0])))
+    mask_cropped = mask_image[ymin:ymax,xmin:xmax]
+    # Extract the contour
+    contours = measure.find_contours(mask_cropped, 0.8)
+    if len(contours) != 1:
+      # print("Length of contours", len(contours))
+      max_area = 0
+      max_id = 0
+      for i, contour in enumerate(contours):
+        wd = max(contour[:,0])-min(contour[:,0])
+        hd = max(contour[:,1])-min(contour[:,1])
+        area = wd*hd
+        if area > max_area:
+          max_area = area
+          max_id = i
+      swapped_version = np.squeeze(contours[max_id])
+    else:
+      swapped_version = np.squeeze(contours)
+
+    values = np.zeros_like(swapped_version)
+    values[:,0] = swapped_version[:,1]
+    values[:,1] = swapped_version[:,0]
+
+    if len(values) < max_num:
+      num_subsamples = max_num - len(values)
+      # Subsample and augment
+      # Find distance between successive points in a contour and then, create additional points
+      # in between the points having highest distance
+      distance_list = []
+      for id_val in range(len(values)):
+        dist = np.linalg.norm(values[id_val]-values[(id_val+1)%len(values)])
+        distance_list.append(dist)
+      id_sorted = np.argsort(distance_list)[::-1]
+      selected_ids = id_sorted[0:num_subsamples] # point needs to be added after the id in selected id or at the palace of selected id+1
+      insert_ids = []
+      intermediate_points = []
+      for id_val in selected_ids:
+        distance = distance_list[id_val]
+        target_distance = distance/2
+        pt1 = values[id_val]
+        pt2 = values[(id_val+1)%len(values)]
+#             print("pt2[0]-pt1[0]", pt2[0]-pt1[0])
+        slope = (pt2[1]-pt1[1])/(pt2[0]-pt1[0]+10**-6)
+        pt_intermediate = [(pt1[0]+(target_distance/math.sqrt(1+(slope**2)))), (pt1[1]+(slope*target_distance/math.sqrt(1+(slope**2))))]
+        intermediate_points.append(pt_intermediate)
+        insert_ids.append((id_val+1)%len(values))
+      sorted_ = np.argsort(insert_ids)
+      insert_ids = np.asarray(insert_ids)[sorted_]
+      intermediate_points = np.asarray(intermediate_points)[sorted_]
+      for o, id_val in enumerate(insert_ids):
+        values = np.insert(values, id_val+o, intermediate_points[o], axis=0)
+    Ax_, Ay_, filtered_points = key_point_extractor(values, max_num, np.shape(mask_cropped))
+    mask_vector = [0]*24
+    mask_vector[0] = center_x
+    mask_vector[1] = center_y
+    mask_vector[2] = width
+    mask_vector[3] = height
+    # for l, v in enumerate(Ax_):
+    #   mask_vector[4+l] = v
+    # for l, v in enumerate(Ay_):
+    #   mask_vector[14+l] = v
+    for l, v in enumerate(filtered_points):
+      mask_vector[4+l] = v[0]
+      mask_vector[14+l] = v[1]
+    return mask_vector
+
+  def wavelet_based_key_point_extractor_2(self, polygon, h, w):
+    max_num=10
+    outline = np.array(polygon)
+    rrr, ccc = outline[:,1], outline[:,0]
+    rr = []
+    cc = []
+    for r in rrr:
+      if r < 0:
+        r = 0
+      if r > h:
+        r = h
+      rr.append(r)
+    for c in ccc:
+      if c < 0:
+        c = 0
+      if c > w:
+        c = w
+      cc.append(c)
+    rr = np.array(rr)
+    cc = np.array(cc)
+    sum_values = cc + rr
+    diff_values = cc - rr
+    xmin = max(min(cc), 0)
+    xmax = min(max(cc), w)
+    ymin = max(min(rr), 0)
+    ymax = min(max(rr), h)
+    width       = xmax - xmin
+    height      = ymax - ymin
+    if width <= 0:
+      print("Max and min x values", xmax, xmin, w)
+    if height <= 0:
+      print("Max and min y values", ymax, ymin, h)
+    center_x  = xmin + 0.5*width 
+    center_y  = ymin + 0.5*height
+
+    db1 = pywt.Wavelet('haar') # TODO : dont hard-code HAAR
+    x = outline[:,0] - xmin
+    y = outline[:,1] - ymin
+    Ax_, Dx_ = pywt.wavedec(x, db1, mode='periodic', level=1)
+    Ay_, Dy_ = pywt.wavedec(y, db1, mode='periodic', level=1)
+    metric_values_x = self.get_importance_values(Dx_, False)
+    metric_values_y = self.get_importance_values(Dy_, False)
+    consolidated_metrics = [max(a,b) for a,b in zip(metric_values_x, metric_values_y)]
+    sorted_metric_indices = np.argsort(consolidated_metrics)
+    # Returns the shortlisted co-effs for x and y
+    mask_vector = [0]*24
+    mask_vector[0] = center_x
+    mask_vector[1] = center_y
+
+    for l, v in enumerate(Ax_[sorted_metric_indices[0:max_num]]):
+      mask_vector[2+l] = v
+    for l, v in enumerate(Ay_[sorted_metric_indices[0:max_num]]):
+      mask_vector[12+l] = v
+
+    # if width or height > 100:
+    #   db1_1 = pywt.Wavelet('haar')
+    #   v_ = [Ax_[sorted_metric_indices[0:max_num]], np.zeros_like(Ax_[sorted_metric_indices[0:max_num]])]
+    #   w_ = [Ay_[sorted_metric_indices[0:max_num]], np.zeros_like(Ay_[sorted_metric_indices[0:max_num]])]
+    #   reconstructed_x_rel = pywt.waverec(v_, db1_1) # Reconstruct the points x co-ord
+    #   reconstructed_y_rel = pywt.waverec(w_, db1_1) # Reconstruct the points y co-ord
+    #   center_x_1 = (max(reconstructed_x_rel) - min(reconstructed_x_rel))/2
+    #   center_y_1 = (max(reconstructed_y_rel) - min(reconstructed_y_rel))/2
+    #   x_vals = np.reshape(reconstructed_x_rel - center_x_1 + center_x, (-1,1))
+    #   y_vals = np.reshape(reconstructed_y_rel - center_y_1 + center_y, (-1,1))
+    #   contour = np.hstack((y_vals, x_vals)) # y first then x
+    #   contour = np.round(contour) # Ensure rounding
+    #   contour = np.array(contour, 'int32')
+    #   polygon1 = [contour]
+    #   im = np.zeros((h,w))
+    #   mask = cv2.fillPoly(im, polygon1, color=255)
+    #   cv2.imwrite("inspection.jpg", im)
+    #   print("Done Saving !")
+
+    return mask_vector
 
   def _get_8_point_mask(self, polygon, h, w):
     """Finds the safe octagonal encoding of the polygon.
@@ -232,7 +553,7 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      if mc.EIGHT_POINT_REGRESSION:
+      if mc.EIGHT_POINT_REGRESSION_1:
         polygons = [b[2] for b in self._poly[idx][:]]
       is_drift_performed = False
       is_flip_performed = False
@@ -280,7 +601,7 @@ class input_reader(imdb):
       y_scale = mc.IMAGE_HEIGHT/orig_h
       gt_bbox_pre[:, 0::2] = gt_bbox_pre[:, 0::2]*x_scale
       gt_bbox_pre[:, 1::2] = gt_bbox_pre[:, 1::2]*y_scale
-      if mc.EIGHT_POINT_REGRESSION:
+      if mc.EIGHT_POINT_REGRESSION_1:
         for p in range(len(polygons)):
           poly = np.array(polygons[p])
           if is_drift_performed:
@@ -293,27 +614,28 @@ class input_reader(imdb):
           polygons[p] = poly
       is_drift_performed = False
       is_flip_performed = False
-      gt_bbox = gt_bbox_pre # Use shifted bounding box if EIGHT_POINT_REGRESSION = False
+      gt_bbox = gt_bbox_pre # Use shifted bounding box if EIGHT_POINT_REGRESSION_1 = False
       # Transform the bounding box to offset mode.
       # We extract the bounding box from the flipped and drifted masks to ensure
       # consistency.
-      if mc.EIGHT_POINT_REGRESSION:
+      if mc.EIGHT_POINT_REGRESSION_1:
         gt_bbox = []
         actual_bin_masks = []
         for k in range(len(polygons)):
           polygon = polygons[k]
-          mask_vector = self._get_8_point_mask(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
-          center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
-          if width == 0 or height == 0:
-            print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
-            del label_per_batch[img_ct][k]
-            continue
-          assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
-          points = decode_parameterization(mask_vector)
-          points = np.round(points)
-          points = np.array(points, 'int32')
-          assert not ((points[0][1] - points[1][1]) > 1 or (points[2][0] - points[3][0]) > 1 or (points[5][1] - points[4][1]) > 1 or (points[7][0] - points[6][0]) > 1), \
-            "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
+          # mask_vector = self.wavelet_based_key_point_extractor_2(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
+          mask_vector = self.get_key_points(polygon, 10, self.wavelet_based_key_point_extractor_3, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH))
+          # center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
+          # if width == 0 or height == 0:
+          #   print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
+          #   del label_per_batch[img_ct][k]
+          #   continue
+          # assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
+          # points = decode_parameterization(mask_vector)
+          # points = np.round(points)
+          # points = np.array(points, 'int32')
+          # assert not ((points[0][1] - points[1][1]) > 1 or (points[2][0] - points[3][0]) > 1 or (points[5][1] - points[4][1]) > 1 or (points[7][0] - points[6][0]) > 1), \
+          #   "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
           gt_bbox.append(mask_vector)
 
       bbox_per_batch.append(gt_bbox)
@@ -339,19 +661,22 @@ class input_reader(imdb):
               avg_ious += overlaps[ov_idx]
               num_objects += 1
             break
-
         if aidx == len(mc.ANCHOR_BOX): 
           # even the largeset available overlap is 0, thus, choose one with the
           # smallest square distance
-          dist = np.sum(np.square(gt_bbox[i] - mc.ANCHOR_BOX), axis=1)
+          dist = np.sum(np.square(gt_bbox[i][0:2] - mc.ANCHOR_BOX), axis=1)
           for dist_idx in np.argsort(dist):
             if dist_idx not in aidx_set:
               aidx_set.add(dist_idx)
               aidx = dist_idx
               break
-        if mc.EIGHT_POINT_REGRESSION:
-          box_cx, box_cy, box_w, box_h, of1, of2, of3, of4 = gt_bbox[i]
-          delta = [0]*8
+        if mc.EIGHT_POINT_REGRESSION_1:
+          # box_cx, box_cy, box_w, box_h, of1, of2, of3, of4 = gt_bbox[i]
+          box_cx = gt_bbox[i][0]
+          box_cy = gt_bbox[i][1]
+          box_w = gt_bbox[i][2]
+          box_h = gt_bbox[i][3]
+          delta = [0]*24
         else:
           box_cx, box_cy, box_w, box_h = gt_bbox[i]
           delta = [0]*4
@@ -361,17 +686,19 @@ class input_reader(imdb):
         delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2]) # if box_w or box_h = 0, the box is not included
         delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
-        if mc.EIGHT_POINT_REGRESSION:
+        if mc.EIGHT_POINT_REGRESSION_1:
           EPSILON = 1e-8
           anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
-          delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)
-          delta[5] = np.log((of2 + EPSILON)/anchor_diagonal)
-          delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
-          delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
+          for l in range(10):
+            # delta[4+l] = math.log(gt_bbox[i][4+l] + EPSILON)
+            # delta[14+l] = math.log(gt_bbox[i][14+l] + EPSILON)
+            delta[4+l] = math.log((gt_bbox[i][4+l] + EPSILON)/mc.ANCHOR_BOX[aidx][2])
+            delta[14+l] = math.log((gt_bbox[i][14+l] + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+          # delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
+          # delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
 
         aidx_per_image.append(aidx)
         delta_per_image.append(delta)
-
       delta_per_batch.append(delta_per_image)
       aidx_per_batch.append(aidx_per_image)
 
@@ -384,5 +711,3 @@ class input_reader(imdb):
 
     return image_per_batch, label_per_batch, delta_per_batch, \
         aidx_per_batch, bbox_per_batch
-
-

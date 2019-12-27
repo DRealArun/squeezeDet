@@ -35,6 +35,8 @@ class ResNet50ConvDet(ModelSkeleton):
     num_mask_params = 4
     if mc.EIGHT_POINT_REGRESSION:
       num_mask_params = 8
+    else:
+      num_mask_params = 24
     if mc.LOAD_PRETRAINED_MODEL:
       assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), \
           'Cannot find pretrained model at the given path:' \

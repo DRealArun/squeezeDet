@@ -79,7 +79,7 @@ class ModelSkeleton:
     if self.mc.EIGHT_POINT_REGRESSION:
       self.num_mask_params = 8
     else:
-      self.num_mask_params = 4
+      self.num_mask_params = 24
     self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -189,37 +189,32 @@ class ModelSkeleton:
           delta_x, delta_y, delta_w, delta_h, \
           delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
               self.pred_box_delta, axis=2)
-        else:
-          delta_x, delta_y, delta_w, delta_h = tf.unstack(
-              self.pred_box_delta, axis=2)
+          anchor_x = mc.ANCHOR_BOX[:, 0]
+          anchor_y = mc.ANCHOR_BOX[:, 1]
+          anchor_w = mc.ANCHOR_BOX[:, 2]
+          anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        anchor_x = mc.ANCHOR_BOX[:, 0]
-        anchor_y = mc.ANCHOR_BOX[:, 1]
-        anchor_w = mc.ANCHOR_BOX[:, 2]
-        anchor_h = mc.ANCHOR_BOX[:, 3]
+          box_center_x = tf.identity(
+              anchor_x + delta_x * anchor_w, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * anchor_h, name='bbox_cy')
+          box_width = tf.identity(
+              anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
+              name='bbox_width')
+          box_height = tf.identity(
+              anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
+              name='bbox_height')
 
-        box_center_x = tf.identity(
-            anchor_x + delta_x * anchor_w, name='bbox_cx')
-        box_center_y = tf.identity(
-            anchor_y + delta_y * anchor_h, name='bbox_cy')
-        box_width = tf.identity(
-            anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
-            name='bbox_width')
-        box_height = tf.identity(
-            anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
-            name='bbox_height')
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(delta_w, 'delta_w')
+          self._activation_summary(delta_h, 'delta_h')
 
-        self._activation_summary(delta_x, 'delta_x')
-        self._activation_summary(delta_y, 'delta_y')
-        self._activation_summary(delta_w, 'delta_w')
-        self._activation_summary(delta_h, 'delta_h')
+          self._activation_summary(box_center_x, 'bbox_cx')
+          self._activation_summary(box_center_y, 'bbox_cy')
+          self._activation_summary(box_width, 'bbox_width')
+          self._activation_summary(box_height, 'bbox_height')
 
-        self._activation_summary(box_center_x, 'bbox_cx')
-        self._activation_summary(box_center_y, 'bbox_cy')
-        self._activation_summary(box_width, 'bbox_width')
-        self._activation_summary(box_height, 'bbox_height')
-
-        if self.mc.EIGHT_POINT_REGRESSION:
           EPSILON = 1e-8
           anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
           box_of1= tf.identity(
@@ -243,40 +238,120 @@ class ModelSkeleton:
           self._activation_summary(box_of3, 'box_of3')
           self._activation_summary(box_of4, 'box_of4')
 
+        else:
+          # delta_x, delta_y, delta_w, delta_h = tf.unstack(
+          #     self.pred_box_delta, axis=2)
+          anchor_x = mc.ANCHOR_BOX[:, 0]
+          anchor_y = mc.ANCHOR_BOX[:, 1]
+          anchor_w = mc.ANCHOR_BOX[:, 2]
+          anchor_h = mc.ANCHOR_BOX[:, 3]
+          anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
+
+          delta_x = self.pred_box_delta[:,:,0]
+          delta_y = self.pred_box_delta[:,:,1]
+          delta_w = self.pred_box_delta[:,:,2]
+          delta_h = self.pred_box_delta[:,:,3]
+          delta_x_coeffs = self.pred_box_delta[:,:,4:(4+((self.num_mask_params-4)//2))]
+          delta_y_coeffs = self.pred_box_delta[:,:,(4+((self.num_mask_params-4)//2)):]
+
+          box_center_x = tf.identity(
+              anchor_x + delta_x * anchor_w, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * anchor_h, name='bbox_cy')
+          box_width = tf.identity(
+              anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
+              name='bbox_width')
+          box_height = tf.identity(
+              anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
+              name='bbox_height')
+
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(delta_w, 'delta_w')
+          self._activation_summary(delta_h, 'delta_h')
+          self._activation_summary(box_center_x, 'bbox_cx')
+          self._activation_summary(box_center_y, 'bbox_cy')
+          self._activation_summary(box_width, 'bbox_width')
+          self._activation_summary(box_height, 'bbox_height')
+          self._activation_summary(delta_x_coeffs, 'delta_x_coeffs')
+          self._activation_summary(delta_y_coeffs, 'delta_y_coeffs')
+
+          EPSILON = 1e-8
+          # shape_coeff_x = tf.identity(
+          #   (util.safe_exp(delta_x_coeffs, mc.EXP_THRESH))-EPSILON,
+          #   name='shape_coeff_x')
+          # shape_coeff_y = tf.identity(
+          #   (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH))-EPSILON,
+          #   name='shape_coeff_y')
+          shape_coeff_x = tf.identity(
+            (util.safe_exp(delta_x_coeffs, mc.EXP_THRESH)),
+            name='shape_coeff_x')
+          shape_coeff_y = tf.identity(
+            (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH)),
+            name='shape_coeff_y')
+          
+          self._activation_summary(shape_coeff_x, 'shape_coeff_x')
+          self._activation_summary(shape_coeff_y, 'shape_coeff_y')
+
       with tf.variable_scope('trimming'):
         if self.mc.EIGHT_POINT_REGRESSION:
           xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
             [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
-        else:
-          xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
-              [box_center_x, box_center_y, box_width, box_height])
+          # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
+          # pixels. Same for y.
+          xmins = tf.minimum(
+              tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
+          self._activation_summary(xmins, 'box_xmin')
 
-        # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
-        # pixels. Same for y.
-        xmins = tf.minimum(
-            tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
-        self._activation_summary(xmins, 'box_xmin')
+          ymins = tf.minimum(
+              tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
+          self._activation_summary(ymins, 'box_ymin')
 
-        ymins = tf.minimum(
-            tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
-        self._activation_summary(ymins, 'box_ymin')
+          xmaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
+          self._activation_summary(xmaxs, 'box_xmax')
 
-        xmaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
-        self._activation_summary(xmaxs, 'box_xmax')
+          ymaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
+          self._activation_summary(ymaxs, 'box_ymax')
 
-        ymaxs = tf.maximum(
-            tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
-        self._activation_summary(ymaxs, 'box_ymax')
-
-        if self.mc.EIGHT_POINT_REGRESSION:
           self.det_boxes = tf.transpose(
               tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
               (1, 2, 0), name='bbox'
           )
         else:
+          xmins, ymins, xmaxs, ymaxs = util.bbox_transform([box_center_x, box_center_y, box_width, box_height])
+          # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
+          # pixels. Same for y.
+          xmins = tf.minimum(
+              tf.maximum(0.0, xmins), mc.IMAGE_WIDTH-1.0, name='bbox_xmin')
+          self._activation_summary(xmins, 'box_xmin')
+
+          ymins = tf.minimum(
+              tf.maximum(0.0, ymins), mc.IMAGE_HEIGHT-1.0, name='bbox_ymin')
+          self._activation_summary(ymins, 'box_ymin')
+
+          xmaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_WIDTH-1.0, xmaxs), 0.0, name='bbox_xmax')
+          self._activation_summary(xmaxs, 'box_xmax')
+
+          ymaxs = tf.maximum(
+              tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
+          self._activation_summary(ymaxs, 'box_ymax')
+
+          final_list = [0]*self.num_mask_params
+          final_list[0] = box_center_x
+          final_list[1] = box_center_y
+          final_list[2] = box_width
+          final_list[3] = box_height
+          final_list[4:14] = tf.unstack(shape_coeff_x, axis=2)
+          final_list[14:] = tf.unstack(shape_coeff_y, axis=2)
+          for u in range(4,14):
+            final_list[u] = (final_list[u]*tf.cast(anchor_w, tf.float32)) - EPSILON
+          for u in range(14,24):
+            final_list[u] = (final_list[u]*tf.cast(anchor_h, tf.float32)) - EPSILON
           self.det_boxes = tf.transpose(
-              tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+              tf.stack(final_list),
               (1, 2, 0), name='bbox'
           )
 
@@ -307,8 +382,8 @@ class ModelSkeleton:
         tensor_det_boxes = util.bbox_transform2(tf.unstack(self.det_boxes, axis=2))
         tensor_input_boxes = util.bbox_transform2(tf.unstack(self.box_input, axis=2))
       else:
-        tensor_det_boxes = util.bbox_transform(tf.unstack(self.det_boxes, axis=2))
-        tensor_input_boxes = util.bbox_transform(tf.unstack(self.box_input, axis=2))
+        tensor_det_boxes = util.bbox_transform24(tf.unstack(self.det_boxes, axis=2))
+        tensor_input_boxes = util.bbox_transform24(tf.unstack(self.box_input, axis=2))
 
       self.ious = self.ious.assign(
           _tensor_iou(tensor_det_boxes, tensor_input_boxes)
@@ -323,6 +398,7 @@ class ModelSkeleton:
           tf.reshape(self.pred_conf, [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           name='final_class_prob'
       )
+      # probs = self.pred_class_probs
 
       self._activation_summary(probs, 'final_class_prob')
 
