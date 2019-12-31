@@ -79,7 +79,7 @@ class ModelSkeleton:
     if self.mc.EIGHT_POINT_REGRESSION:
       self.num_mask_params = 8
     else:
-      self.num_mask_params = 24
+      self.num_mask_params = 14
     self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -99,6 +99,9 @@ class ModelSkeleton:
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
+    # Tensor used to represent angles
+    self.ph_angles = tf.placeholder(
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params-4, 10], name='angles')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -109,21 +112,22 @@ class ModelSkeleton:
     self.FIFOQueue = tf.FIFOQueue(
         capacity=mc.QUEUE_CAPACITY,
         dtypes=[tf.float32, tf.float32, tf.float32, 
-                tf.float32, tf.float32],
+                tf.float32, tf.float32, tf.float32],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
                 [mc.ANCHORS, self.num_mask_params],
                 [mc.ANCHORS, self.num_mask_params],
-                [mc.ANCHORS, mc.CLASSES]],
+                [mc.ANCHORS, mc.CLASSES],
+                [mc.ANCHORS, self.num_mask_params-4, 10]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
         [self.ph_image_input, self.ph_input_mask,
-         self.ph_box_delta_input, self.ph_box_input, self.ph_labels]
+         self.ph_box_delta_input, self.ph_box_input, self.ph_labels, self.ph_angles]
     )
 
     self.image_input, self.input_mask, self.box_delta_input, \
-        self.box_input, self.labels = tf.train.batch(
+        self.box_input, self.labels, self.angles = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
 
@@ -174,10 +178,22 @@ class ModelSkeleton:
       )
 
       # bbox_delta
+      num_box_preds = mc.ANCHOR_PER_GRID*self.num_mask_params+num_confidence_scores
       self.pred_box_delta = tf.reshape(
-          preds[:, :, :, num_confidence_scores:],
+          preds[:, :, :, num_confidence_scores:num_box_preds],
           [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params],
           name='bbox_delta'
+      )
+
+      self.pred_angle_delta = tf.reshape(
+          tf.nn.softmax(
+              tf.reshape(
+                  preds[:, :, :, num_box_preds:],
+                  [-1, 10]
+              )
+          ),
+          [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params-4, 10],
+          name='bbox_angle_delta'
       )
 
       # number of object. Used to normalize bbox and classification loss
@@ -251,8 +267,7 @@ class ModelSkeleton:
           delta_y = self.pred_box_delta[:,:,1]
           delta_w = self.pred_box_delta[:,:,2]
           delta_h = self.pred_box_delta[:,:,3]
-          delta_x_coeffs = self.pred_box_delta[:,:,4:(4+((self.num_mask_params-4)//2))]
-          delta_y_coeffs = self.pred_box_delta[:,:,(4+((self.num_mask_params-4)//2)):]
+          delta_coeffs = self.pred_box_delta[:,:,4:(4+(self.num_mask_params-4))]
 
           box_center_x = tf.identity(
               anchor_x + delta_x * anchor_w, name='bbox_cx')
@@ -273,8 +288,8 @@ class ModelSkeleton:
           self._activation_summary(box_center_y, 'bbox_cy')
           self._activation_summary(box_width, 'bbox_width')
           self._activation_summary(box_height, 'bbox_height')
-          self._activation_summary(delta_x_coeffs, 'delta_x_coeffs')
-          self._activation_summary(delta_y_coeffs, 'delta_y_coeffs')
+          self._activation_summary(delta_coeffs, 'delta_coeffs')
+          # self._activation_summary(delta_y_coeffs, 'delta_y_coeffs')
 
           EPSILON = 1e-8
           # shape_coeff_x = tf.identity(
@@ -283,15 +298,12 @@ class ModelSkeleton:
           # shape_coeff_y = tf.identity(
           #   (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH))-EPSILON,
           #   name='shape_coeff_y')
-          shape_coeff_x = tf.identity(
-            (util.safe_exp(delta_x_coeffs, mc.EXP_THRESH)),
-            name='shape_coeff_x')
-          shape_coeff_y = tf.identity(
-            (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH)),
-            name='shape_coeff_y')
-          
-          self._activation_summary(shape_coeff_x, 'shape_coeff_x')
-          self._activation_summary(shape_coeff_y, 'shape_coeff_y')
+          shape_coeffs = []*(self.num_mask_params-4)
+          shape_coeffs = tf.unstack(util.safe_exp(delta_coeffs, mc.EXP_THRESH), axis=2)
+          for h in range(self.num_mask_params-4):
+            shape_coeffs[h] = (anchor_diag * shape_coeffs[h]) - EPSILON
+            self._activation_summary(shape_coeffs[h], 'shape_coeff_'+str(h))
+          shape_coeffs = tf.identity(shape_coeffs, name='shape_coeffs')
 
       with tf.variable_scope('trimming'):
         if self.mc.EIGHT_POINT_REGRESSION:
@@ -344,12 +356,8 @@ class ModelSkeleton:
           final_list[1] = box_center_y
           final_list[2] = box_width
           final_list[3] = box_height
-          final_list[4:14] = tf.unstack(shape_coeff_x, axis=2)
-          final_list[14:] = tf.unstack(shape_coeff_y, axis=2)
-          for u in range(4,14):
-            final_list[u] = (final_list[u]*tf.cast(anchor_w, tf.float32)) - EPSILON
-          for u in range(14,24):
-            final_list[u] = (final_list[u]*tf.cast(anchor_h, tf.float32)) - EPSILON
+          for h in range(self.num_mask_params-4):
+            final_list[4+h] = shape_coeffs[h]
           self.det_boxes = tf.transpose(
               tf.stack(final_list),
               (1, 2, 0), name='bbox'
@@ -404,6 +412,7 @@ class ModelSkeleton:
 
       self.det_probs = tf.reduce_max(probs, 2, name='score')
       self.det_class = tf.argmax(probs, 2, name='class_idx')
+      self.det_angles = tf.argmax(self.pred_angle_delta, 3, name='det_angles')
 
   def _add_loss_graph(self):
     """Define the loss operation."""
@@ -435,6 +444,17 @@ class ModelSkeleton:
       )
       tf.add_to_collection('losses', self.conf_loss)
       tf.summary.scalar('mean iou', tf.reduce_sum(self.ious)/self.num_objects)
+
+    with tf.variable_scope('angle_regression') as scope:
+      self.angle_loss = tf.truediv(
+          tf.reduce_sum(
+              tf.reduce_sum(self.angles*(-tf.log(self.pred_angle_delta+mc.EPSILON))
+               + (1-self.angles)*(-tf.log(1-self.pred_angle_delta+mc.EPSILON)), reduction_indices=[2,3])
+              * input_mask * mc.LOSS_COEF_ANGLE),
+          self.num_objects,
+          name='angle_loss'
+      )
+      tf.add_to_collection('losses', self.angle_loss)
 
     with tf.variable_scope('bounding_box_regression') as scope:
       self.bbox_loss = tf.truediv(

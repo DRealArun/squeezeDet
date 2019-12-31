@@ -114,12 +114,22 @@ def reconstruct_contour(Ax, Ay):
     contour = np.array(contour, 'int32')
     return contour
 
-def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
+def get_cart_coords(r, ang):
+  # xmin, ymin is the origin
+  # print(r, ang)
+  x_vals = np.reshape(np.multiply(r, np.cos(ang*np.pi/180.0)), (-1,1))
+  y_vals = np.reshape(np.multiply(r, np.sin(ang*np.pi/180.0)), (-1,1))
+  contour = np.hstack((x_vals, y_vals)) # y first then x
+  contour = np.round(contour) # Ensure rounding
+  contour = np.array(contour, 'int32')
+  return contour
+
+def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False, ang1=None):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
   bkp_im = copy.deepcopy(im)
   ht, wd, ch = np.shape(im)
-  for bbox, label in zip(box_list, label_list):
+  for bbox, label, a in zip(box_list, label_list, ang1):
     global_center_x = bbox[0]
     global_center_y = bbox[1]
     global_center_w = bbox[2]
@@ -129,18 +139,14 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     # coeff_x_rel = np.asarray(bbox[4:14])
     # coeff_y_rel = np.asarray(bbox[14:24])
     # contour_recon = reconstruct_contour(coeff_x_rel, coeff_y_rel) # Reconstruct the points x co-ord
-    x_vals = np.reshape(bbox[4:14], (-1,1))
-    y_vals = np.reshape(bbox[14:24], (-1,1))
-    contour_recon = np.hstack((x_vals, y_vals)) # y first then x
-    contour_recon = np.round(contour_recon) # Ensure rounding
-    contour_recon = np.array(contour_recon, 'int32')
-    contour_recon[:,0] = contour_recon[:,0] + xmin_g
-    contour_recon[:,1] = contour_recon[:,1] + ymin_g
-    if ':' in label:
-      print("Reconstructed Contours:", contour_recon)
-    # contour = np.hstack((x_vals, y_vals)) # y first then x
-    # contour = np.round(contour) # Ensure rounding
-    # contour = np.array(contour, 'int32')
+    r = bbox[4:14]
+    ang = np.asarray(a)*10
+    keypoints_swapped = get_cart_coords(r, ang)
+    contour_recon = np.zeros_like(keypoints_swapped)
+    contour_recon[:,0] = keypoints_swapped[:,0] + xmin_g
+    contour_recon[:,1] = keypoints_swapped[:,1] + ymin_g
+    # if ':' in label:
+    #   print("Reconstructed Contours:", contour_recon)
     # draw box
     c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
     # xmin = min(contour_recon[:,0])
@@ -166,15 +172,15 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     #   cv2.circle(im, tuple(p), 3, c, -1)
     
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
-                           batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False):
+                           batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False, a=None, a2=None):
   mc = model.mc
-
+  # print(np.shape(a), np.shape(a2), a2)
   for i in range(len(images)):
     # draw ground truth
-    _draw_box(
-        images[i], bboxes[i],
-        [mc.CLASS_NAMES[idx] for idx in labels[i]],
-        draw_masks=visualize_gt_masks, fill=True)
+    # _draw_box(
+    #     images[i], bboxes[i],
+    #     [mc.CLASS_NAMES[idx] for idx in labels[i]],
+    #     draw_masks=visualize_gt_masks, fill=True, ang1=a2[i])
 
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
@@ -191,7 +197,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (255, 255, 255), draw_masks=visualize_pred_masks, fill=False)
+        (255, 255, 255), draw_masks=visualize_pred_masks, fill=False, ang1=a[i])
 
 
 def train():
@@ -289,15 +295,17 @@ def train():
       if eval_valid:
         # Only for validation set
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-          bbox_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
+          bbox_per_batch, angles_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
         keep_prob_value = 1.0
+        num_angles = len(imdb_valid._angle_classes)
       else:
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-            bbox_per_batch = imdb.read_batch()
+            bbox_per_batch, angles_per_batch = imdb.read_batch()
         keep_prob_value = mc.DROP_OUT_PROB
+        num_angles = len(imdb._angle_classes)
 
-      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
-          = [], [], [], [], []
+      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, angle_indices\
+          = [], [], [], [], [], []
       aidx_set = set()
       num_discarded_labels = 0
       num_labels = 0
@@ -310,9 +318,11 @@ def train():
                 [i, aidx_per_batch[i][j], label_per_batch[i][j]])
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(24)])
+                [[i, aidx_per_batch[i][j], k] for k in range(14)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
+            angle_indices.extend(
+                [[i, aidx_per_batch[i][j], k, angles_per_batch[i][j][k]] for k in range(10)]) 
           else:
             num_discarded_labels += 1
 
@@ -326,12 +336,14 @@ def train():
         box_delta_input = model.ph_box_delta_input
         box_input = model.ph_box_input
         labels = model.ph_labels
+        angles = model.ph_angles
       else:
         image_input = model.image_input
         input_mask = model.input_mask
         box_delta_input = model.box_delta_input
         box_input = model.box_input
         labels = model.labels
+        angles = model.angles
 
       feed_dict = {
           image_input: image_per_batch,
@@ -341,24 +353,28 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 14],
               box_delta_values),
           box_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],
+              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 14],
               box_values),
           labels: sparse_to_dense(
               label_indices,
               [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
               [1.0]*len(label_indices)),
-          model.keep_prob: keep_prob_value
+          model.keep_prob: keep_prob_value,
+          angles: sparse_to_dense(
+              angle_indices,
+              [mc.BATCH_SIZE, mc.ANCHORS, 10, num_angles],
+              [1.0]*len(angle_indices)),
       }
 
-      return feed_dict, image_per_batch, label_per_batch, bbox_per_batch
+      return feed_dict, image_per_batch, label_per_batch, bbox_per_batch, angles_per_batch
 
     def _enqueue(sess, coord):
       try:
         while not coord.should_stop():
-          feed_dict, _, _, _ = _load_data()
+          feed_dict, _, _, _, _ = _load_data()
           sess.run(model.enqueue_op, feed_dict=feed_dict)
           if mc.DEBUG_MODE:
             print ("added to the queue")
@@ -416,15 +432,15 @@ def train():
       start_time = time.time()
 
       if step % FLAGS.summary_step == 0:
-        feed_dict, image_per_batch, label_per_batch, bbox_per_batch = \
+        feed_dict, image_per_batch, label_per_batch, bbox_per_batch, angle_per_batch = \
             _load_data(load_to_placeholder=False)
         op_list = [
             model.train_op, model.loss, summary_op, model.det_boxes,
             model.det_probs, model.det_class, model.conf_loss,
-            model.bbox_loss, model.class_loss
+            model.bbox_loss, model.class_loss, model.angle_loss, model.det_angles
         ]
         _, loss_value, summary_str, det_boxes, det_probs, det_class, \
-            conf_loss, bbox_loss, class_loss = sess.run(
+            conf_loss, bbox_loss, class_loss, angle_loss, det_angles = sess.run(
                 op_list, feed_dict=feed_dict)
 
         summary_writer.add_summary(summary_str, step)
@@ -438,17 +454,17 @@ def train():
 
           _viz_prediction_result(
               model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-              det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
+              det_class, det_probs, visualize_gt_masks, visualize_pred_masks, det_angles, angle_per_batch)
           image_per_batch = bgr_to_rgb(image_per_batch)
           viz_summary = sess.run(
               model.viz_op, feed_dict={model.image_to_show: image_per_batch})
           summary_writer.add_summary(viz_summary, step)
         
-        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_value, conf_loss, bbox_loss, class_loss))
+        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}'.\
+              format(loss_value, conf_loss, bbox_loss, class_loss, angle_loss))
         with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
-          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(step, loss_value, conf_loss, bbox_loss, class_loss))
+          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}\n'.\
+              format(step, loss_value, conf_loss, bbox_loss, class_loss, angle_loss))
         f.close()
         if FLAGS.eval_valid:
           print ('\n!! Validation Set evaluation at step ', step, ' !!')
@@ -466,15 +482,15 @@ def train():
                 num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE)
               if batch_nr > num_of_batches:
                 break
-              feed_dict_val, image_per_batch_val, label_per_batch_val, bbox_per_batch_val = \
+              feed_dict_val, image_per_batch_val, label_per_batch_val, bbox_per_batch_val, angle_per_batch_val = \
                   _load_data(load_to_placeholder=False, eval_valid=True)
               op_list_val = [
                   model.loss, model.conf_loss, model.bbox_loss, \
                   model.class_loss, model.det_boxes, \
-                  model.det_probs, model.det_class,
+                  model.det_probs, model.det_class, model.angle_loss, model.det_angles
               ]
               loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, det_boxes_val, \
-                det_probs_val, det_class_val = sess.run(op_list_val, feed_dict=feed_dict_val)
+                det_probs_val, det_class_val, angle_loss_val, det_angles_val = sess.run(op_list_val, feed_dict=feed_dict_val)
               if batch_nr == 1:
                 # Sample the first batch for visualization
                 visualize_gt_masks = False
@@ -484,23 +500,23 @@ def train():
                   visualize_pred_masks = True
                 _viz_prediction_result(
                     model, image_per_batch_val, bbox_per_batch_val, label_per_batch_val, det_boxes_val,
-                    det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks)
+                    det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks, det_angles_val, angle_per_batch_val)
                 image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
 
-              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])
-              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val))
+              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, angle_loss_val])
+              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}\n'.\
+                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, angle_loss_val))
             loss_list = np.asarray(loss_list)
-            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3])]
-            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3])]
-            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
-            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3]), np.mean(loss_list[:,4])]
+            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3]), np.std(loss_list[:,4])]
+            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3], loss_means[4]))
+            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3], loss_stds[4]))
+            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}\n'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3], loss_means[4]))
+            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, angle_loss: {}\n'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]), loss_stds[4])
             # Visualize the validation examples
             if len(image_per_batch_visualize) != 0:
               viz_summary = sess.run(

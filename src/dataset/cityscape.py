@@ -26,6 +26,8 @@ class cityscape(input_reader):
     self._label_path = os.path.join(self._data_root_path, str(image_set), 'instance')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
+    self._angle_classes = tuple(sorted([str(o) for o in range(0,100,10)]))
+    self._angles_to_idx = dict(zip(self._angle_classes, range(len(self._angle_classes))))
 
     # a list of string indices of images in the directory
     self._image_idx = self._load_image_set_idx() 

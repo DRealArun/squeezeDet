@@ -36,7 +36,7 @@ class ResNet50ConvDet(ModelSkeleton):
     if mc.EIGHT_POINT_REGRESSION:
       num_mask_params = 8
     else:
-      num_mask_params = 24
+      num_mask_params = 14
     if mc.LOAD_PRETRAINED_MODEL:
       assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), \
           'Cannot find pretrained model at the given path:' \
@@ -131,7 +131,7 @@ class ResNet50ConvDet(ModelSkeleton):
 
     dropout4 = tf.nn.dropout(res4f, self.keep_prob, name='drop4')
 
-    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)
+    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params + (10*10))
     self.preds = self._conv_layer(
         'conv5', dropout4, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)

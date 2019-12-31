@@ -25,6 +25,7 @@ def cityscape_res50_config(mask_parameterization, log_anchors):
   mc.LOSS_COEF_CONF_POS    = 75.0
   mc.LOSS_COEF_CONF_NEG    = 100.0
   mc.LOSS_COEF_CLASS       = 1.0
+  mc.LOSS_COEF_ANGLE       = 1.0
 
   mc.PLOT_PROB_THRESH      = 0.4
   mc.NMS_THRESH            = 0.4

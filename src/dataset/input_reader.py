@@ -246,7 +246,7 @@ class input_reader(imdb):
 #     print(np.unique(mask_reshaped))
     return mask_reshaped
 
-  def get_key_points(self, polymask, max_num, key_point_extractor, dim):
+  def get_key_points(self, polymask, max_num, dim, classes):
     h, w = dim
     outline = polymask
     rrr, ccc = outline[:,1], outline[:,0]
@@ -303,39 +303,20 @@ class input_reader(imdb):
     else:
       swapped_version = np.squeeze(contours)
 
-    values = np.zeros_like(swapped_version)
-    values[:,0] = swapped_version[:,1]
-    values[:,1] = swapped_version[:,0]
-
-    if len(values) < max_num:
-      num_subsamples = max_num - len(values)
-      # Subsample and augment
-      # Find distance between successive points in a contour and then, create additional points
-      # in between the points having highest distance
-      distance_list = []
-      for id_val in range(len(values)):
-        dist = np.linalg.norm(values[id_val]-values[(id_val+1)%len(values)])
-        distance_list.append(dist)
-      id_sorted = np.argsort(distance_list)[::-1]
-      selected_ids = id_sorted[0:num_subsamples] # point needs to be added after the id in selected id or at the palace of selected id+1
-      insert_ids = []
-      intermediate_points = []
-      for id_val in selected_ids:
-        distance = distance_list[id_val]
-        target_distance = distance/2
-        pt1 = values[id_val]
-        pt2 = values[(id_val+1)%len(values)]
-#             print("pt2[0]-pt1[0]", pt2[0]-pt1[0])
-        slope = (pt2[1]-pt1[1])/(pt2[0]-pt1[0]+10**-6)
-        pt_intermediate = [(pt1[0]+(target_distance/math.sqrt(1+(slope**2)))), (pt1[1]+(slope*target_distance/math.sqrt(1+(slope**2))))]
-        intermediate_points.append(pt_intermediate)
-        insert_ids.append((id_val+1)%len(values))
-      sorted_ = np.argsort(insert_ids)
-      insert_ids = np.asarray(insert_ids)[sorted_]
-      intermediate_points = np.asarray(intermediate_points)[sorted_]
-      for o, id_val in enumerate(insert_ids):
-        values = np.insert(values, id_val+o, intermediate_points[o], axis=0)
-    Ax_, Ay_, filtered_points = key_point_extractor(values, max_num, np.shape(mask_cropped))
+    
+    segment_list, segment_lengths = self.segment_contour(swapped_version, 10)
+    values = self.get_base_line_contour(segment_list, segment_lengths)
+    keypoints = np.zeros_like(values)
+    keypoints[:,0] = values[:,1]
+    keypoints[:,1] = values[:,0]
+    r, angles = self.get_polar_coords(keypoints, xmin, ymin)
+    labels = []
+    for angle in angles:
+        for idx, class_val in enumerate(classes):
+            if angle >= int(class_val):
+                label = idx
+        labels.append(label)
+    
     mask_vector = [0]*24
     mask_vector[0] = center_x
     mask_vector[1] = center_y
@@ -345,9 +326,10 @@ class input_reader(imdb):
     #   mask_vector[4+l] = v
     # for l, v in enumerate(Ay_):
     #   mask_vector[14+l] = v
-    for l, v in enumerate(filtered_points):
-      mask_vector[4+l] = v[0]
-      mask_vector[14+l] = v[1]
+    for l in range(len(r)):
+      # print(l, len(r), len(labels))
+      mask_vector[4+l] = r[l]
+      mask_vector[14+l] = labels[l]
     return mask_vector
 
   def wavelet_based_key_point_extractor_2(self, polygon, h, w):
@@ -424,6 +406,97 @@ class input_reader(imdb):
     #   print("Done Saving !")
 
     return mask_vector
+
+
+  def get_polar_coords(self, keypoints_values, x_orig, y_orig):
+    # xmin, ymin is the origin
+    r = np.sqrt(np.sum(np.square(keypoints_values), axis=1))
+    angles = []
+    for key_pt in keypoints_values:
+      if key_pt[0] > 0:
+        angle = np.arctan(key_pt[1]/key_pt[0]) * 180.0 / np.pi
+      else:
+        angle = 90.0
+      angles.append(angle)
+    return r, np.asarray(angles)
+
+  def get_cart_coords(self, r, angles, x_orig, y_orig):
+    # xmin, ymin is the origin
+    x_vals = np.reshape(np.multiply(r, np.cos(angles*np.pi/180.0)), (-1,1))
+    y_vals = np.reshape(np.multiply(r, np.sin(angles*np.pi/180.0)), (-1,1))
+    contour = np.hstack((x_vals, y_vals)) # y first then x
+    contour = np.round(contour) # Ensure rounding
+    contour = np.array(contour, 'int32')
+    return contour
+
+  def close_contour_if_necessary(self, points):
+    if points[-1][0] != points[0][0] or points[-1][1] != points[0][1]:
+      # print("Contour is not closed, so closing it !")
+      diff = points[0] - points[-1]
+      if diff[0] == 0:
+        inc = 1
+        if diff[1] < 0:
+          inc = -1
+        fillers = [(points[0][0], y) for y in np.arange(points[-1][1], points[0][1], inc)] #Since step is 1 the last point does not reach the destination but gets close
+        fillers.append((points[0][0], points[0][1])) # So append the destination
+      else:
+        slope = diff[1]/diff[0]
+        c = points[0][1] - (slope*points[0][0])
+        inc = 1
+        if diff[0] < 0:
+          inc = -1
+        fillers = [(x, (slope*x)+c) for x in np.arange(points[-1][0], points[0][0], inc)] #Since step is 1 the last point does not reach the destination but gets close
+        fillers.append((points[0][0], points[0][1])) # So append the destination
+      num_points = len(points) + len(fillers)
+      # print(num_points, len(points), len(fillers), points[-1], points[0])
+      filled_contour = np.zeros((num_points, 2))
+      filled_contour[0:len(points),:] = points
+      filled_contour[len(points):,:] = np.asarray(fillers)
+    else:
+      filled_contour = points
+    return filled_contour
+      
+  def segment_contour(self, points, num_seg):
+    points = self.close_contour_if_necessary(points)
+    contours_squeezed_shifted = np.roll(points, -1, axis=0)
+    perimeter = np.sum(np.sqrt(np.sum(np.square(points-contours_squeezed_shifted), axis=1)))
+    seg_len = perimeter/num_seg
+    # print("Perimeter Local:", perimeter, seg_len, num_seg)
+    dist_counter = 0
+    seg_list = []
+    dist_list = []
+    seg = []
+    dist = 0
+    last_dist = 0
+    lim = seg_len
+    for pt1, pt2 in zip(points, contours_squeezed_shifted):
+      dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+      seg.append(pt1)
+      if dist >= lim:
+        seg_list.append(np.asarray(seg))
+        dist_list.append(dist-last_dist)
+        seg = []
+        lim += seg_len
+        last_dist = dist
+    if len(seg) != 0 and dist-last_dist != 0:
+      # print(len(seg), dist)
+      seg_list.append(np.asarray(seg))
+      dist_list.append(dist-last_dist)
+    # print("Num of segments:", len(seg_list), dist_list, np.sum(dist_list))
+    return seg_list, dist_list
+              
+  def get_base_line_contour(self, seg_list, dist_list):
+    keypoint_list = []
+    for seg, dist in zip(seg_list, dist_list):
+      inc_dist = 0
+      seg_shifted = np.roll(seg, -1, axis=0)
+      for pt1, pt2 in zip(seg, seg_shifted):
+        inc_dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+        if inc_dist >= dist/2:
+          keypoint_list.append(pt1)
+          break
+    # print("Number of keypoints:", len(keypoint_list))
+    return np.asarray(keypoint_list)
 
   def _get_8_point_mask(self, polygon, h, w):
     """Finds the safe octagonal encoding of the polygon.
@@ -523,6 +596,7 @@ class input_reader(imdb):
 
     image_per_batch = []
     label_per_batch = []
+    angles_per_batch = []
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
@@ -619,12 +693,13 @@ class input_reader(imdb):
       # We extract the bounding box from the flipped and drifted masks to ensure
       # consistency.
       if mc.EIGHT_POINT_REGRESSION_1:
+
         gt_bbox = []
-        actual_bin_masks = []
+        gt_angle_bbox = []
         for k in range(len(polygons)):
           polygon = polygons[k]
           # mask_vector = self.wavelet_based_key_point_extractor_2(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
-          mask_vector = self.get_key_points(polygon, 10, self.wavelet_based_key_point_extractor_3, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH))
+          mask_vector = self.get_key_points(polygon, 10, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH), self._angle_classes)
           # center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
           # if width == 0 or height == 0:
           #   print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
@@ -636,9 +711,11 @@ class input_reader(imdb):
           # points = np.array(points, 'int32')
           # assert not ((points[0][1] - points[1][1]) > 1 or (points[2][0] - points[3][0]) > 1 or (points[5][1] - points[4][1]) > 1 or (points[7][0] - points[6][0]) > 1), \
           #   "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
-          gt_bbox.append(mask_vector)
+          gt_bbox.append(mask_vector[0:14])
+          gt_angle_bbox.append(mask_vector[14:])
 
       bbox_per_batch.append(gt_bbox)
+      angles_per_batch.append(gt_angle_bbox)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
@@ -676,7 +753,7 @@ class input_reader(imdb):
           box_cy = gt_bbox[i][1]
           box_w = gt_bbox[i][2]
           box_h = gt_bbox[i][3]
-          delta = [0]*24
+          delta = [0]*14
         else:
           box_cx, box_cy, box_w, box_h = gt_bbox[i]
           delta = [0]*4
@@ -692,8 +769,8 @@ class input_reader(imdb):
           for l in range(10):
             # delta[4+l] = math.log(gt_bbox[i][4+l] + EPSILON)
             # delta[14+l] = math.log(gt_bbox[i][14+l] + EPSILON)
-            delta[4+l] = math.log((gt_bbox[i][4+l] + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-            delta[14+l] = math.log((gt_bbox[i][14+l] + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+            delta[4+l] = math.log((gt_bbox[i][4+l] + EPSILON)/anchor_diagonal)
+            # delta[14+l] = math.log((gt_bbox[i][14+l] + EPSILON)/mc.ANCHOR_BOX[aidx][3])
           # delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
           # delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
 
@@ -710,4 +787,4 @@ class input_reader(imdb):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, angles_per_batch
