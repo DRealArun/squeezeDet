@@ -246,6 +246,84 @@ class input_reader(imdb):
 #     print(np.unique(mask_reshaped))
     return mask_reshaped
 
+  def close_contour_if_necessary(self, points):
+    if points[-1][0] != points[0][0] or points[-1][1] != points[0][1]:
+#     print("Contour is not closed, so closing it !")
+      diff = points[0] - points[-1]
+      if diff[0] == 0:
+        inc = 1
+        if diff[1] < 0:
+          inc = -1
+        fillers = [(points[0][0], y) for y in np.arange(points[-1][1], points[0][1], inc)] #Since step is 1 the last point does not reach the destination but gets close
+        fillers.append((points[0][0], points[0][1])) # So append the destination
+      else:
+        slope = diff[1]/diff[0]
+        c = points[0][1] - (slope*points[0][0])
+        inc = 1
+        if diff[0] < 0:
+          inc = -1
+        fillers = [(x, (slope*x)+c) for x in np.arange(points[-1][0], points[0][0], inc)] #Since step is 1 the last point does not reach the destination but gets close
+        fillers.append((points[0][0], points[0][1])) # So append the destination
+      num_points = len(points) + len(fillers)
+#         print(num_points, len(points), len(fillers), points[-1], points[0])
+      filled_contour = np.zeros((num_points, 2))
+      filled_contour[0:len(points),:] = points
+      filled_contour[len(points):,:] = np.asarray(fillers)
+    else:
+      filled_contour = points
+    return filled_contour
+    
+  def segment_contour(self, points, num_seg):
+    contours_squeezed_shifted = np.roll(points, -1, axis=0)
+    perimeter = np.sum(np.sqrt(np.sum(np.square(points-contours_squeezed_shifted), axis=1)))
+#     print("Perimeter Local:", perimeter)
+    seg_len = perimeter/num_seg
+    dist_counter = 0
+    seg_list = []
+    dist_list = []
+    seg = []
+    dist = 0
+    last_dist = 0
+    lim = seg_len
+    count = 0
+    for pt1, pt2 in zip(points, contours_squeezed_shifted):
+      dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+      seg.append(pt1)
+      count += 1
+      if dist >= lim:
+#             print(len(seg), dist)
+        seg_list.append(np.asarray(seg))
+        dist_list.append(dist-last_dist)
+        seg = []
+        lim += seg_len
+        last_dist = dist
+    if len(seg) != 0 and dist-last_dist != 0:
+#         print(len(seg), dist)
+      seg_list.append(np.asarray(seg))
+      dist_list.append(dist-last_dist)
+#     print("Num of segments:", len(seg_list), dist_list, np.sum(dist_list))
+    return seg_list, dist_list
+              
+  def get_base_line_keypoints(self, values, max_num):
+    seg_list, dist_list= self.segment_contour(values, max_num)
+    keypoint_list = []
+    for seg, dist in zip(seg_list, dist_list):
+      inc_dist = 0
+      seg_shifted = np.roll(seg, -1, axis=0)
+      for pt1, pt2 in zip(seg, seg_shifted):
+        inc_dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+        if inc_dist >= dist/2:
+          keypoint_list.append(pt1)
+          break
+#     print("Number of keypoints:", len(keypoint_list))
+    return np.asarray(keypoint_list)
+          
+  def get_contour_approximation(self, values, max_num, key_point_extractor):
+    values = self.close_contour_if_necessary(values)
+    keypoints = key_point_extractor(values, max_num)
+    return keypoints
+
+
   def get_key_points(self, polymask, max_num, key_point_extractor, dim):
     h, w = dim
     outline = polymask
@@ -285,6 +363,8 @@ class input_reader(imdb):
     xmax = int(round(min(max(polymask[:,0])+2, dim[1])))
     ymin = int(round(max(min(polymask[:,1])-2, 0)))
     ymax = int(round(min(max(polymask[:,1])+2, dim[0])))
+    new_width = xmax-xmin
+    new_height = ymax-ymin
     mask_cropped = mask_image[ymin:ymax,xmin:xmax]
     # Extract the contour
     contours = measure.find_contours(mask_cropped, 0.8)
@@ -307,35 +387,45 @@ class input_reader(imdb):
     values[:,0] = swapped_version[:,1]
     values[:,1] = swapped_version[:,0]
 
-    if len(values) < max_num:
-      num_subsamples = max_num - len(values)
-      # Subsample and augment
-      # Find distance between successive points in a contour and then, create additional points
-      # in between the points having highest distance
-      distance_list = []
-      for id_val in range(len(values)):
-        dist = np.linalg.norm(values[id_val]-values[(id_val+1)%len(values)])
-        distance_list.append(dist)
-      id_sorted = np.argsort(distance_list)[::-1]
-      selected_ids = id_sorted[0:num_subsamples] # point needs to be added after the id in selected id or at the palace of selected id+1
-      insert_ids = []
-      intermediate_points = []
-      for id_val in selected_ids:
-        distance = distance_list[id_val]
-        target_distance = distance/2
-        pt1 = values[id_val]
-        pt2 = values[(id_val+1)%len(values)]
-#             print("pt2[0]-pt1[0]", pt2[0]-pt1[0])
-        slope = (pt2[1]-pt1[1])/(pt2[0]-pt1[0]+10**-6)
-        pt_intermediate = [(pt1[0]+(target_distance/math.sqrt(1+(slope**2)))), (pt1[1]+(slope*target_distance/math.sqrt(1+(slope**2))))]
-        intermediate_points.append(pt_intermediate)
-        insert_ids.append((id_val+1)%len(values))
-      sorted_ = np.argsort(insert_ids)
-      insert_ids = np.asarray(insert_ids)[sorted_]
-      intermediate_points = np.asarray(intermediate_points)[sorted_]
-      for o, id_val in enumerate(insert_ids):
-        values = np.insert(values, id_val+o, intermediate_points[o], axis=0)
-    Ax_, Ay_, filtered_points = key_point_extractor(values, max_num, np.shape(mask_cropped))
+#     if len(values) < max_num:
+#       num_subsamples = max_num - len(values)
+#       # Subsample and augment
+#       # Find distance between successive points in a contour and then, create additional points
+#       # in between the points having highest distance
+#       distance_list = []
+#       for id_val in range(len(values)):
+#         dist = np.linalg.norm(values[id_val]-values[(id_val+1)%len(values)])
+#         distance_list.append(dist)
+#       id_sorted = np.argsort(distance_list)[::-1]
+#       selected_ids = id_sorted[0:num_subsamples] # point needs to be added after the id in selected id or at the palace of selected id+1
+#       insert_ids = []
+#       intermediate_points = []
+#       for id_val in selected_ids:
+#         distance = distance_list[id_val]
+#         target_distance = distance/2
+#         pt1 = values[id_val]
+#         pt2 = values[(id_val+1)%len(values)]
+# #             print("pt2[0]-pt1[0]", pt2[0]-pt1[0])
+#         slope = (pt2[1]-pt1[1])/(pt2[0]-pt1[0]+10**-6)
+#         pt_intermediate = [(pt1[0]+(target_distance/math.sqrt(1+(slope**2)))), (pt1[1]+(slope*target_distance/math.sqrt(1+(slope**2))))]
+#         intermediate_points.append(pt_intermediate)
+#         insert_ids.append((id_val+1)%len(values))
+#       sorted_ = np.argsort(insert_ids)
+#       insert_ids = np.asarray(insert_ids)[sorted_]
+#       intermediate_points = np.asarray(intermediate_points)[sorted_]
+#       for o, id_val in enumerate(insert_ids):
+#         values = np.insert(values, id_val+o, intermediate_points[o], axis=0)
+
+    filtered_points = self.get_contour_approximation(values, max_num, key_point_extractor)
+
+
+    distances = np.sqrt(np.sum(np.square(filtered_points), axis=1))
+    min_id = np.argmin(distances)
+    filtered_points = np.roll(filtered_points, -1*(min_id), axis=0)
+    distances = np.sqrt(np.sum(np.square(filtered_points), axis=1))
+    min_id = np.argmin(distances)
+    assert min_id == 0, "ERROR Reordering failed !" # After reordering the first index must be zero
+
     mask_vector = [0]*24
     mask_vector[0] = center_x
     mask_vector[1] = center_y
@@ -348,7 +438,7 @@ class input_reader(imdb):
     for l, v in enumerate(filtered_points):
       mask_vector[4+l] = v[0]
       mask_vector[14+l] = v[1]
-    return mask_vector
+    return mask_vector, new_width, new_height
 
   def wavelet_based_key_point_extractor_2(self, polygon, h, w):
     max_num=10
@@ -424,6 +514,40 @@ class input_reader(imdb):
     #   print("Done Saving !")
 
     return mask_vector
+
+  def get_anchor_encoded_contour(self, values, anchor_w, anchor_h, actual_w, actual_h):
+    max_res = anchor_w*anchor_h
+    x_scale = actual_w/anchor_w
+    y_scale = actual_h/anchor_h
+    scaled_values = self.get_scaled_contour(values, 1/x_scale, 1/y_scale)
+    encoding = (scaled_values[:,1]*anchor_w + scaled_values[:,0])
+    # Rotate the encoding such that we begin from the smallest value in the encoding
+    min_id_initial = np.argmin(encoding)
+    encoding = np.roll(encoding, -1*(min_id_initial), axis=0)
+    min_id = np.argmin(encoding)
+    assert min_id == 0, "ERROR Reordering failed in encoding !"
+    # print("Encoding:", encoding)
+    encoding /= max_res
+    # print("Encoding scaled:", encoding)
+    return encoding, min_id_initial
+
+  def get_anchor_decoded_contour(self, encoding, anchor_w, anchor_h, actual_w, actual_h):
+    max_res = anchor_w*anchor_h
+    x_scale = actual_w/anchor_w
+    y_scale = actual_h/anchor_h
+    values = np.zeros((len(encoding), 2))
+    values[:, 0] = (encoding * max_res) % anchor_w
+    values[:, 1] = (encoding * max_res) // anchor_w
+    scaled_values = self.get_scaled_contour(values, x_scale, y_scale)
+    # print("Decoding:", scaled_values)
+    return scaled_values
+      
+  def get_scaled_contour(self, values, x_scale, y_scale):
+    scaled_values = np.zeros_like(values)
+    scaled_values[:,0] = np.round(values[:,0]*x_scale)
+    scaled_values[:,1] = np.round(values[:,1]*x_scale)
+    return scaled_values
+
 
   def _get_8_point_mask(self, polygon, h, w):
     """Finds the safe octagonal encoding of the polygon.
@@ -620,11 +744,12 @@ class input_reader(imdb):
       # consistency.
       if mc.EIGHT_POINT_REGRESSION_1:
         gt_bbox = []
+        new_dims = []
         actual_bin_masks = []
         for k in range(len(polygons)):
           polygon = polygons[k]
           # mask_vector = self.wavelet_based_key_point_extractor_2(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
-          mask_vector = self.get_key_points(polygon, 10, self.wavelet_based_key_point_extractor_3, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH))
+          mask_vector, new_w, new_h = self.get_key_points(polygon, 10, self.get_base_line_keypoints, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH))
           # center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
           # if width == 0 or height == 0:
           #   print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
@@ -636,6 +761,7 @@ class input_reader(imdb):
           # points = np.array(points, 'int32')
           # assert not ((points[0][1] - points[1][1]) > 1 or (points[2][0] - points[3][0]) > 1 or (points[5][1] - points[4][1]) > 1 or (points[7][0] - points[6][0]) > 1), \
           #   "\n\n Error in extraction:"+str(points)+" "+str(idx)+" "+str(mask_vector)
+          new_dims.append((new_w, new_h))
           gt_bbox.append(mask_vector)
 
       bbox_per_batch.append(gt_bbox)
@@ -676,7 +802,7 @@ class input_reader(imdb):
           box_cy = gt_bbox[i][1]
           box_w = gt_bbox[i][2]
           box_h = gt_bbox[i][3]
-          delta = [0]*24
+          delta = [0]*14
         else:
           box_cx, box_cy, box_w, box_h = gt_bbox[i]
           delta = [0]*4
@@ -688,12 +814,20 @@ class input_reader(imdb):
 
         if mc.EIGHT_POINT_REGRESSION_1:
           EPSILON = 1e-8
-          anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
+          contour_pts = np.zeros((10,2))
+          contour_pts[:,0] = gt_bbox[i][4:14]
+          contour_pts[:,1] = gt_bbox[i][14:24]
+          code, min_id = self.get_anchor_encoded_contour(contour_pts, mc.ANCHOR_BOX[aidx][2], mc.ANCHOR_BOX[aidx][3], new_dims[i][0], new_dims[i][1])
+          recon_points = self.get_anchor_decoded_contour(code, mc.ANCHOR_BOX[aidx][2], mc.ANCHOR_BOX[aidx][3], new_dims[i][0], new_dims[i][1])
+          # print("Points:", recon_points, np.round(np.roll(contour_pts, -1*(min_id), axis=0)),  np.roll(contour_pts, -1*(min_id), axis=0))
+          # assert np.allclose(np.round(np.roll(contour_pts, -1*(min_id), axis=0)), recon_points), "Error in transformation"
+
+          # anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
           for l in range(10):
             # delta[4+l] = math.log(gt_bbox[i][4+l] + EPSILON)
             # delta[14+l] = math.log(gt_bbox[i][14+l] + EPSILON)
-            delta[4+l] = math.log((gt_bbox[i][4+l] + EPSILON)/mc.ANCHOR_BOX[aidx][2])
-            delta[14+l] = math.log((gt_bbox[i][14+l] + EPSILON)/mc.ANCHOR_BOX[aidx][3])
+            delta[4+l] = math.log(code[l]+1)
+            # delta[14+l] = math.log((gt_bbox[i][14+l] + EPSILON)/mc.ANCHOR_BOX[aidx][3])
           # delta[6] = np.log((of3 + EPSILON)/anchor_diagonal)
           # delta[7] = np.log((of4 + EPSILON)/anchor_diagonal)
 

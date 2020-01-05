@@ -136,6 +136,7 @@ def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', d
     contour_recon = np.array(contour_recon, 'int32')
     contour_recon[:,0] = contour_recon[:,0] + xmin_g
     contour_recon[:,1] = contour_recon[:,1] + ymin_g
+
     if ':' in label:
       print("Reconstructed Contours:", contour_recon)
     # contour = np.hstack((x_vals, y_vals)) # y first then x
@@ -296,8 +297,8 @@ def train():
             bbox_per_batch = imdb.read_batch()
         keep_prob_value = mc.DROP_OUT_PROB
 
-      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
-          = [], [], [], [], []
+      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, bbox_indices1 \
+          = [], [], [], [], [], []
       aidx_set = set()
       num_discarded_labels = 0
       num_labels = 0
@@ -311,6 +312,8 @@ def train():
             mask_indices.append([i, aidx_per_batch[i][j]])
             bbox_indices.extend(
                 [[i, aidx_per_batch[i][j], k] for k in range(24)])
+            bbox_indices1.extend(
+                [[i, aidx_per_batch[i][j], k] for k in range(14)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
           else:
@@ -341,7 +344,7 @@ def train():
                   [1.0]*len(mask_indices)),
               [mc.BATCH_SIZE, mc.ANCHORS, 1]),
           box_delta_input: sparse_to_dense(
-              bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],
+              bbox_indices1, [mc.BATCH_SIZE, mc.ANCHORS, 14],
               box_delta_values),
           box_input: sparse_to_dense(
               bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 24],

@@ -79,7 +79,7 @@ class ModelSkeleton:
     if self.mc.EIGHT_POINT_REGRESSION:
       self.num_mask_params = 8
     else:
-      self.num_mask_params = 24
+      self.num_mask_params = 14
     self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -95,7 +95,7 @@ class ModelSkeleton:
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='box_delta_input')
     # Tensor used to represent bounding box coordinates.
     self.ph_box_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='box_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params+10], name='box_input')
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
@@ -113,7 +113,7 @@ class ModelSkeleton:
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
                 [mc.ANCHORS, self.num_mask_params],
-                [mc.ANCHORS, self.num_mask_params],
+                [mc.ANCHORS, self.num_mask_params+10],
                 [mc.ANCHORS, mc.CLASSES]],
     )
 
@@ -251,8 +251,7 @@ class ModelSkeleton:
           delta_y = self.pred_box_delta[:,:,1]
           delta_w = self.pred_box_delta[:,:,2]
           delta_h = self.pred_box_delta[:,:,3]
-          delta_x_coeffs = self.pred_box_delta[:,:,4:(4+((self.num_mask_params-4)//2))]
-          delta_y_coeffs = self.pred_box_delta[:,:,(4+((self.num_mask_params-4)//2)):]
+          delta_coeffs = self.pred_box_delta[:,:,4:14]
 
           box_center_x = tf.identity(
               anchor_x + delta_x * anchor_w, name='bbox_cx')
@@ -273,8 +272,8 @@ class ModelSkeleton:
           self._activation_summary(box_center_y, 'bbox_cy')
           self._activation_summary(box_width, 'bbox_width')
           self._activation_summary(box_height, 'bbox_height')
-          self._activation_summary(delta_x_coeffs, 'delta_x_coeffs')
-          self._activation_summary(delta_y_coeffs, 'delta_y_coeffs')
+          self._activation_summary(delta_coeffs, 'delta_coeffs')
+          # self._activation_summary(delta_y_coeffs, 'delta_y_coeffs')
 
           EPSILON = 1e-8
           # shape_coeff_x = tf.identity(
@@ -283,11 +282,10 @@ class ModelSkeleton:
           # shape_coeff_y = tf.identity(
           #   (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH))-EPSILON,
           #   name='shape_coeff_y')
-          shape_coeff_x = tf.identity(
-            (util.safe_exp(delta_x_coeffs, mc.EXP_THRESH)),
+
+          shape_coeff_x = tf.identity((util.safe_exp(delta_coeffs, mc.EXP_THRESH))-1,
             name='shape_coeff_x')
-          shape_coeff_y = tf.identity(
-            (util.safe_exp(delta_y_coeffs, mc.EXP_THRESH)),
+          shape_coeff_y = tf.identity((util.safe_exp(delta_coeffs, mc.EXP_THRESH))-1,
             name='shape_coeff_y')
           
           self._activation_summary(shape_coeff_x, 'shape_coeff_x')
@@ -346,10 +344,14 @@ class ModelSkeleton:
           final_list[3] = box_height
           final_list[4:14] = tf.unstack(shape_coeff_x, axis=2)
           final_list[14:] = tf.unstack(shape_coeff_y, axis=2)
+          max_res = anchor_w*anchor_h
+          x_scale = box_width/anchor_w
+          y_scale = box_height/anchor_h
+
           for u in range(4,14):
-            final_list[u] = (final_list[u]*tf.cast(anchor_w, tf.float32)) - EPSILON
+            final_list[u] = (final_list[u] * tf.cast(max_res, tf.float32) % tf.cast(anchor_w, tf.float32))* x_scale
           for u in range(14,24):
-            final_list[u] = (final_list[u]*tf.cast(anchor_h, tf.float32)) - EPSILON
+            final_list[u] = (final_list[u] * tf.cast(max_res, tf.float32) // tf.cast(anchor_w, tf.float32))* y_scale
           self.det_boxes = tf.transpose(
               tf.stack(final_list),
               (1, 2, 0), name='bbox'

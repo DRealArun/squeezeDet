@@ -40,7 +40,8 @@ def cityscape_squeezeDet_config(mask_parameterization, log_anchors):
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
   if mask_parameterization == 8:
-    mc.EIGHT_POINT_REGRESSION = True
+    mc.EIGHT_POINT_REGRESSION = False
+  mc.EIGHT_POINT_REGRESSION_1 = True
 
   return mc
 
