@@ -12,6 +12,211 @@ from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
 from utils.util import iou, batch_iou
+from skimage import measure
+
+def get_mask(polygon, imh, imw, divider=1):
+  local_polygon = [np.array(polygon, dtype=np.int32)]
+  mask = np.zeros((imh,imw))
+  mask = cv2.fillPoly(mask, local_polygon, color=255)
+  mask_reshaped = cv2.resize(mask, (imw//divider, imh//divider), interpolation = cv2.INTER_AREA)
+  ret, mask_reshaped = cv2.threshold(mask_reshaped, 127, 255, 0)
+  return mask_reshaped
+
+def segment_contour(points, num_seg):
+  contours_squeezed_shifted = np.roll(points, -1, axis=0)
+  perimeter = np.sum(np.sqrt(np.sum(np.square(points-contours_squeezed_shifted), axis=1)))
+#     print("Perimeter Local:", perimeter)
+  seg_len = perimeter/num_seg
+  dist_counter = 0
+  seg_list = []
+  dist_list = []
+  seg = []
+  dist = 0
+  last_dist = 0
+  lim = seg_len
+  count = 0
+  for pt1, pt2 in zip(points, contours_squeezed_shifted):
+    dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+    seg.append(pt1)
+    count += 1
+    if dist >= lim:
+#             print(len(seg), dist)
+      seg_list.append(np.asarray(seg))
+      dist_list.append(dist-last_dist)
+      seg = []
+      lim += seg_len
+      last_dist = dist
+  if len(seg) != 0 and dist-last_dist != 0:
+#         print(len(seg), dist)
+    seg_list.append(np.asarray(seg))
+    dist_list.append(dist-last_dist)
+#     print("Num of segments:", len(seg_list), dist_list, np.sum(dist_list))
+  return seg_list, dist_list
+
+def get_base_line_keypoints(values, max_num):
+  seg_list, dist_list= segment_contour(values, max_num)
+  keypoint_list = []
+  for seg, dist in zip(seg_list, dist_list):
+    inc_dist = 0
+    seg_shifted = np.roll(seg, -1, axis=0)
+    for pt1, pt2 in zip(seg, seg_shifted):
+      inc_dist += np.sqrt(np.sum(np.square(pt1-pt2)))
+      if inc_dist >= dist/2:
+        keypoint_list.append(pt1)
+        break
+#     print("Number of keypoints:", len(keypoint_list))
+  return np.asarray(keypoint_list)
+
+def close_contour_if_necessary(points):
+  if points[-1][0] != points[0][0] or points[-1][1] != points[0][1]:
+#     print("Contour is not closed, so closing it !")
+    diff = points[0] - points[-1]
+    if diff[0] == 0:
+      inc = 1
+      if diff[1] < 0:
+        inc = -1
+      fillers = [(points[0][0], y) for y in np.arange(points[-1][1], points[0][1], inc)] #Since step is 1 the last point does not reach the destination but gets close
+      fillers.append((points[0][0], points[0][1])) # So append the destination
+    else:
+      slope = diff[1]/diff[0]
+      c = points[0][1] - (slope*points[0][0])
+      inc = 1
+      if diff[0] < 0:
+        inc = -1
+      fillers = [(x, (slope*x)+c) for x in np.arange(points[-1][0], points[0][0], inc)] #Since step is 1 the last point does not reach the destination but gets close
+      fillers.append((points[0][0], points[0][1])) # So append the destination
+    num_points = len(points) + len(fillers)
+#         print(num_points, len(points), len(fillers), points[-1], points[0])
+    filled_contour = np.zeros((num_points, 2))
+    filled_contour[0:len(points),:] = points
+    filled_contour[len(points):,:] = np.asarray(fillers)
+  else:
+    filled_contour = points
+  return filled_contour
+
+def get_contour_approximation(values, max_num, key_point_extractor):
+  values = close_contour_if_necessary(values)
+  keypoints = key_point_extractor(values, max_num)
+  return keypoints
+
+def get_key_points(polymask, max_num, key_point_extractor, dim):
+  h, w = dim
+  outline = polymask
+  rrr, ccc = outline[:,1], outline[:,0]
+  rr = []
+  cc = []
+  for r in rrr:
+    if r < 0:
+      r = 0
+    if r > h:
+      r = h
+    rr.append(r)
+  for c in ccc:
+    if c < 0:
+      c = 0
+    if c > w:
+      c = w
+    cc.append(c)
+  rr = np.array(rr)
+  cc = np.array(cc)
+  xmin = max(min(cc), 0)
+  xmax = min(max(cc), w)
+  ymin = max(min(rr), 0)
+  ymax = min(max(rr), h)
+  width       = xmax - xmin
+  height      = ymax - ymin
+  if width <= 0:
+    print("Max and min x values", xmax, xmin, w)
+  if height <= 0:
+    print("Max and min y values", ymax, ymin, h)
+  center_x  = xmin + 0.5*width 
+  center_y  = ymin + 0.5*height
+
+  # Create mask from polygon
+  mask_cropped = get_mask(polymask, dim[0], dim[1], divider=1)
+  # Extract the contour
+  contours = measure.find_contours(mask_cropped, 0.8)
+  if len(contours) != 1:
+    # print("Length of contours", len(contours))
+    max_area = 0
+    max_id = 0
+    for i, contour in enumerate(contours):
+      wd = max(contour[:,0])-min(contour[:,0])
+      hd = max(contour[:,1])-min(contour[:,1])
+      area = wd*hd
+      if area > max_area:
+        max_area = area
+        max_id = i
+    swapped_version = np.squeeze(contours[max_id])
+  else:
+    swapped_version = np.squeeze(contours)
+
+  values = np.zeros_like(swapped_version)
+  values[:,0] = swapped_version[:,1]
+  values[:,1] = swapped_version[:,0]
+
+  filtered_points = get_contour_approximation(values, max_num, key_point_extractor)
+
+
+  distances = np.sqrt(np.sum(np.square(filtered_points), axis=1))
+  min_id = np.argmin(distances)
+  filtered_points = np.roll(filtered_points, -1*(min_id), axis=0)
+  distances = np.sqrt(np.sum(np.square(filtered_points), axis=1))
+  min_id = np.argmin(distances)
+  assert min_id == 0, "ERROR Reordering failed !" # After reordering the first index must be zero
+
+  mask_vector = [0]*24
+  mask_vector[0] = center_x
+  mask_vector[1] = center_y
+  mask_vector[2] = width
+  mask_vector[3] = height
+  for l, v in enumerate(filtered_points):
+    mask_vector[4+l] = v[0]
+    mask_vector[14+l] = v[1]
+  return mask_vector
+
+def _makeGaussian(height, width, sigma = 3, center=None):
+  """ Make a square gaussian kernel.
+  size is the length of a side of the square
+  sigma is full-width-half-maximum, which
+  can be thought of as an effective radius.
+  """
+  x = np.arange(0, width, 1, float)
+  y = np.arange(0, height, 1, float)[:, np.newaxis]
+  if center is None:
+    x0 =  width // 2
+    y0 = height // 2
+  else:
+    x0 = center[0]
+    y0 = center[1]
+  return np.exp(-4*np.log(2) * ((x-x0)**2 + (y-y0)**2) / sigma**2)
+  
+def _generate_hm(height, width ,joints, maxlenght):
+  """ Generate a full Heap Map for every joints in an array
+  Args:
+      height      : Wanted Height for the Heat Map
+      width     : Wanted Width for the Heat Map
+      joints      : Array of Joints
+      maxlenght   : Lenght of the Bounding Box
+  """
+  num_joints = joints.shape[0]
+  hm = np.zeros((height, width, num_joints), dtype = np.float32)
+  for i in range(num_joints):
+    s = int(np.sqrt(maxlenght) * maxlenght * 10 / 131072) + 2
+    hm[:,:,i] = _makeGaussian(height, width, sigma= s, center= (joints[i,0], joints[i,1]))
+  return hm
+
+def get_heat_maps(polygon_per_image, dim, num_keypoints=10):
+  img = np.zeros((256,512,num_keypoints), dtype = np.float32)
+  # plt.imshow(im)
+  for mask_poly in polygon_per_image:
+    vec = get_key_points(mask_poly, 10, get_base_line_keypoints, (dim[0], dim[1]))
+    x = vec[4:14]
+    y = vec[14:24]
+    joints = np.array([(xval/4,yval/4) for xval, yval in zip(x,y)])
+    hms = _generate_hm(256, 512 ,joints, vec[2]/4)
+    img += hms
+  return img
 
 def decode_parameterization(mask_vector):
   """Decodes the octagonal parameterization of the mask to get
@@ -205,6 +410,7 @@ class input_reader(imdb):
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
+    heat_map_per_batch = []
     if mc.DEBUG_MODE:
       avg_ious = 0.
       num_objects = 0.
@@ -232,8 +438,8 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      if mc.EIGHT_POINT_REGRESSION:
-        polygons = [b[2] for b in self._poly[idx][:]]
+      # if mc.EIGHT_POINT_REGRESSION:
+      polygons = [b[2] for b in self._poly[idx][:]]
       is_drift_performed = False
       is_flip_performed = False
 
@@ -280,17 +486,17 @@ class input_reader(imdb):
       y_scale = mc.IMAGE_HEIGHT/orig_h
       gt_bbox_pre[:, 0::2] = gt_bbox_pre[:, 0::2]*x_scale
       gt_bbox_pre[:, 1::2] = gt_bbox_pre[:, 1::2]*y_scale
-      if mc.EIGHT_POINT_REGRESSION:
-        for p in range(len(polygons)):
-          poly = np.array(polygons[p])
-          if is_drift_performed:
-            poly[:,0] = poly[:,0] - dx
-            poly[:,1] = poly[:,1] - dy
-          if is_flip_performed:
-            poly[:,0] = orig_w - 1 - poly[:,0]
-          poly[:,0] = poly[:,0]*x_scale
-          poly[:,1] = poly[:,1]*y_scale
-          polygons[p] = poly
+      # if mc.EIGHT_POINT_REGRESSION:
+      for p in range(len(polygons)):
+        poly = np.array(polygons[p])
+        if is_drift_performed:
+          poly[:,0] = poly[:,0] - dx
+          poly[:,1] = poly[:,1] - dy
+        if is_flip_performed:
+          poly[:,0] = orig_w - 1 - poly[:,0]
+        poly[:,0] = poly[:,0]*x_scale
+        poly[:,1] = poly[:,1]*y_scale
+        polygons[p] = poly
       is_drift_performed = False
       is_flip_performed = False
       gt_bbox = gt_bbox_pre # Use shifted bounding box if EIGHT_POINT_REGRESSION = False
@@ -317,6 +523,8 @@ class input_reader(imdb):
           gt_bbox.append(mask_vector)
 
       bbox_per_batch.append(gt_bbox)
+
+      heat_map_per_batch.append(get_heat_maps(polygons, (mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)))
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
@@ -383,6 +591,6 @@ class input_reader(imdb):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, heat_map_per_batch
 
 

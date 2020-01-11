@@ -99,6 +99,9 @@ class ModelSkeleton:
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
+    # Mask input
+    self.ph_heat_map_input = tf.placeholder(
+      tf.float32, [mc.BATCH_SIZE, 256, 512, 10], name='heat_map_input')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -109,21 +112,22 @@ class ModelSkeleton:
     self.FIFOQueue = tf.FIFOQueue(
         capacity=mc.QUEUE_CAPACITY,
         dtypes=[tf.float32, tf.float32, tf.float32, 
-                tf.float32, tf.float32],
+                tf.float32, tf.float32, tf.float32],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
                 [mc.ANCHORS, self.num_mask_params],
                 [mc.ANCHORS, self.num_mask_params],
-                [mc.ANCHORS, mc.CLASSES]],
+                [mc.ANCHORS, mc.CLASSES], 
+                [256, 512, 10]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
         [self.ph_image_input, self.ph_input_mask,
-         self.ph_box_delta_input, self.ph_box_input, self.ph_labels]
+         self.ph_box_delta_input, self.ph_box_input, self.ph_labels, self.ph_heat_map_input]
     )
 
     self.image_input, self.input_mask, self.box_delta_input, \
-        self.box_input, self.labels = tf.train.batch(
+        self.box_input, self.labels, self.heat_maps = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
 
@@ -174,10 +178,17 @@ class ModelSkeleton:
       )
 
       # bbox_delta
+      num_regressions = (mc.ANCHOR_PER_GRID*self.num_mask_params) + num_confidence_scores
       self.pred_box_delta = tf.reshape(
-          preds[:, :, :, num_confidence_scores:],
+          preds[:, :, :, num_confidence_scores:num_regressions],
           [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params],
           name='bbox_delta'
+      )
+
+      self.pred_heat_map = tf.reshape(
+          tf.image.resize_images(preds[:, :, :, num_regressions:], size=[256,512]),
+          [mc.BATCH_SIZE, 256, 512, 10],
+          name='pred_seg_masks'
       )
 
       # number of object. Used to normalize bbox and classification loss
@@ -370,6 +381,11 @@ class ModelSkeleton:
       )
       tf.add_to_collection('losses', self.bbox_loss)
 
+    with tf.variable_scope('heat_map_estimation') as scope:
+      self.heat_map_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.pred_heat_map, labels= self.heat_maps), 
+        name = 'heat_map_cross_entropy_loss') * mc.LOSS_HEAT_MAP
+      tf.add_to_collection('losses', self.heat_map_loss)
+
     # add above losses as well as weight decay losses to form the total loss
     self.loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
 
@@ -411,7 +427,7 @@ class ModelSkeleton:
     """Define the visualization operation."""
     mc = self.mc
     self.image_to_show = tf.placeholder(
-        tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
+        tf.float32, [None, 256, 512, 1],
         name='image_to_show'
     )
     self.viz_op = tf.summary.image('sample_detection_results',

@@ -104,15 +104,15 @@ class cityscape(input_reader):
       idx2polygons: dictionary mapping image name to the raw binary mask polygons or None depending on include_8_point_masks. 
     """
     idx2annotation = {}
-    if include_8_point_masks:
-      idx2polygons = {}
-    else:
-      idx2polygons = None
+    # if include_8_point_masks:
+    idx2polygons = {}
+    # else:
+      # idx2polygons = None
     rejected_image_ids = []
     for index in self._image_idx:
       bboxes = []
-      if include_8_point_masks:
-        polygons = []
+      # if include_8_point_masks:
+      polygons = []
       filename = os.path.join(self._label_path, index[:-11]+'gtFine_polygons.json')
       instance_info = dict()
       with open(filename) as f:
@@ -137,15 +137,15 @@ class cityscape(input_reader):
                   'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
                       .format(ymin, ymax, index)
               bboxes.append([cx, cy, w, h, cls])
-              if include_8_point_masks:
-                polygons.append([imgHeight, imgWidth, polygon])
+              # if include_8_point_masks:
+              polygons.append([imgHeight, imgWidth, polygon])
       # assert len(bboxes) !=0, "Error here empty bounding box appending"+str(bboxes)
       if len(bboxes) == 0:
         rejected_image_ids.append(index)
       else:
         idx2annotation[index] = bboxes
-        if include_8_point_masks:
-          idx2polygons[index] = polygons
+        # if include_8_point_masks:
+        idx2polygons[index] = polygons
     print("Rejected Image ids in", self._image_set, "- set are", rejected_image_ids)
     for id_val in rejected_image_ids:
       self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.

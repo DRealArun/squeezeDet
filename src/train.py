@@ -226,19 +226,20 @@ def train():
       if eval_valid:
         # Only for validation set
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-          bbox_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
+          bbox_per_batch, heat_map_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
         keep_prob_value = 1.0
       else:
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-            bbox_per_batch = imdb.read_batch()
+            bbox_per_batch, heat_map_per_batch = imdb.read_batch()
         keep_prob_value = mc.DROP_OUT_PROB
 
-      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
-          = [], [], [], [], []
+      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, hm_values\
+          = [], [], [], [], [], []
       aidx_set = set()
       num_discarded_labels = 0
       num_labels = 0
       for i in range(len(label_per_batch)): # batch_size
+        hm_values.append(heat_map_per_batch[i])
         for j in range(len(label_per_batch[i])): # number of annotations
           num_labels += 1
           if (i, aidx_per_batch[i][j]) not in aidx_set:
@@ -263,12 +264,14 @@ def train():
         box_delta_input = model.ph_box_delta_input
         box_input = model.ph_box_input
         labels = model.ph_labels
+        hmaps = model.ph_heat_map_input
       else:
         image_input = model.image_input
         input_mask = model.input_mask
         box_delta_input = model.box_delta_input
         box_input = model.box_input
         labels = model.labels
+        hmaps = model.heat_maps
 
       feed_dict = {
           image_input: image_per_batch,
@@ -287,7 +290,8 @@ def train():
               label_indices,
               [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
               [1.0]*len(label_indices)),
-          model.keep_prob: keep_prob_value
+          model.keep_prob: keep_prob_value,
+          hmaps: hm_values,
       }
 
       return feed_dict, image_per_batch, label_per_batch, bbox_per_batch
@@ -358,10 +362,11 @@ def train():
         op_list = [
             model.train_op, model.loss, summary_op, model.det_boxes,
             model.det_probs, model.det_class, model.conf_loss,
-            model.bbox_loss, model.class_loss
+            model.bbox_loss, model.class_loss, model.heat_map_loss,
+            model.pred_heat_map,
         ]
         _, loss_value, summary_str, det_boxes, det_probs, det_class, \
-            conf_loss, bbox_loss, class_loss = sess.run(
+            conf_loss, bbox_loss, class_loss, hm_loss, hmaps_vis = sess.run(
                 op_list, feed_dict=feed_dict)
 
         summary_writer.add_summary(summary_str, step)
@@ -378,14 +383,14 @@ def train():
               det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
           image_per_batch = bgr_to_rgb(image_per_batch)
           viz_summary = sess.run(
-              model.viz_op, feed_dict={model.image_to_show: image_per_batch})
+              model.viz_op, feed_dict={model.image_to_show: np.reshape(np.sum(hmaps_vis, axis=3), [mc.BATCH_SIZE, 256, 512, 1])})
           summary_writer.add_summary(viz_summary, step)
         
-        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_value, conf_loss, bbox_loss, class_loss))
+        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, heat_map_loss: {}'.\
+              format(loss_value, conf_loss, bbox_loss, class_loss, hm_loss))
         with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
-          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(step, loss_value, conf_loss, bbox_loss, class_loss))
+          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, heat_map_loss: {}\n'.\
+              format(step, loss_value, conf_loss, bbox_loss, class_loss, hm_loss))
         f.close()
         if FLAGS.eval_valid:
           print ('\n!! Validation Set evaluation at step ', step, ' !!')
@@ -409,9 +414,10 @@ def train():
                   model.loss, model.conf_loss, model.bbox_loss, \
                   model.class_loss, model.det_boxes, \
                   model.det_probs, model.det_class,
+                  model.heat_map_loss, model.pred_heat_map,
               ]
               loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, det_boxes_val, \
-                det_probs_val, det_class_val = sess.run(op_list_val, feed_dict=feed_dict_val)
+                det_probs_val, det_class_val, hm_loss_val, hmaps_vis_val = sess.run(op_list_val, feed_dict=feed_dict_val)
               if batch_nr == 1:
                 # Sample the first batch for visualization
                 visualize_gt_masks = False
@@ -424,24 +430,24 @@ def train():
                     det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks)
                 image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
 
-              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])
-              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val))
+              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, hm_loss_val])
+              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, hm_loss_val: {}\n'.\
+                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, hm_loss_val))
             loss_list = np.asarray(loss_list)
-            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3])]
-            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3])]
-            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
-            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3]), np.mean(loss_list[:,4])]
+            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3]), np.mean(loss_list[:,4])]
+            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, hm_loss_val: {}'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3], loss_means[4]))
+            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, hm_loss_val: {}'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3], loss_stds[4]))
+            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, hm_loss_val: {}\n'.\
+              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3], loss_means[4]))
+            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}, hm_loss_val: {}\n'.\
+              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3], loss_stds[4]))
             # Visualize the validation examples
             if len(image_per_batch_visualize) != 0:
               viz_summary = sess.run(
-                  model.viz_op, feed_dict={model.image_to_show: image_per_batch_visualize})
+                  model.viz_op, feed_dict={model.image_to_show: np.reshape(np.sum(hmaps_vis_val, axis=3), [mc.BATCH_SIZE, 256, 512, 1])})
               summary_writer.add_summary(viz_summary, step)
           f.close()
         summary_writer.flush()

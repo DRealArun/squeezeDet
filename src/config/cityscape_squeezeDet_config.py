@@ -12,7 +12,7 @@ def cityscape_squeezeDet_config(mask_parameterization, log_anchors):
 
   mc.IMAGE_WIDTH           = 1024
   mc.IMAGE_HEIGHT          = 512
-  mc.BATCH_SIZE            = 10
+  mc.BATCH_SIZE            = 5
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
@@ -25,6 +25,7 @@ def cityscape_squeezeDet_config(mask_parameterization, log_anchors):
   mc.LOSS_COEF_CONF_POS    = 75.0
   mc.LOSS_COEF_CONF_NEG    = 100.0
   mc.LOSS_COEF_CLASS       = 1.0
+  mc.LOSS_HEAT_MAP         = 2.0
 
   mc.PLOT_PROB_THRESH      = 0.4
   mc.NMS_THRESH            = 0.4

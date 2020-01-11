@@ -76,7 +76,7 @@ class SqueezeDet(ModelSkeleton):
         'fire11', fire10, s1x1=96, e1x1=384, e3x3=384, freeze=False)
     dropout11 = tf.nn.dropout(fire11, self.keep_prob, name='drop11')
 
-    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)
+    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params) + 10#for masks
     self.preds = self._conv_layer(
         'conv12', dropout11, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)
