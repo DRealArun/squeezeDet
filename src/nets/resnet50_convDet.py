@@ -32,6 +32,7 @@ class ResNet50ConvDet(ModelSkeleton):
     """NN architecture."""
 
     mc = self.mc
+    freeze_weight = mc.TRAIN_ONLY_LAST_LAYER
     num_mask_params = 4
     if mc.EIGHT_POINT_REGRESSION:
       num_mask_params = 8
@@ -96,35 +97,35 @@ class ResNet50ConvDet(ModelSkeleton):
       with tf.variable_scope('res4a'):
         branch1 = self._conv_bn_layer(
             res3d, 'res4a_branch1', 'bn4a_branch1', 'scale4a_branch1',
-            filters=1024, size=1, stride=2, relu=False)
+            filters=1024, size=1, stride=2, relu=False, freeze=freeze_weight)
         branch2 = self._res_branch(
             res3d, layer_name='4a', in_filters=256, out_filters=1024,
-            down_sample=True)
+            down_sample=True, freeze=freeze_weight)
         res4a = tf.nn.relu(branch1+branch2, 'relu')
       with tf.variable_scope('res4b'):
         branch2 = self._res_branch(
             res4a, layer_name='4b', in_filters=256, out_filters=1024,
-            down_sample=False)
+            down_sample=False, freeze=freeze_weight)
         res4b = tf.nn.relu(res4a+branch2, 'relu')
       with tf.variable_scope('res4c'):
         branch2 = self._res_branch(
             res4b, layer_name='4c', in_filters=256, out_filters=1024,
-            down_sample=False)
+            down_sample=False, freeze=freeze_weight)
         res4c = tf.nn.relu(res4b+branch2, 'relu')
       with tf.variable_scope('res4d'):
         branch2 = self._res_branch(
             res4c, layer_name='4d', in_filters=256, out_filters=1024,
-            down_sample=False)
+            down_sample=False, freeze=freeze_weight)
         res4d = tf.nn.relu(res4c+branch2, 'relu')
       with tf.variable_scope('res4e'):
         branch2 = self._res_branch(
             res4d, layer_name='4e', in_filters=256, out_filters=1024,
-            down_sample=False)
+            down_sample=False, freeze=freeze_weight)
         res4e = tf.nn.relu(res4d+branch2, 'relu')
       with tf.variable_scope('res4f'):
         branch2 = self._res_branch(
             res4e, layer_name='4f', in_filters=256, out_filters=1024,
-            down_sample=False)
+            down_sample=False, freeze=freeze_weight)
         res4f = tf.nn.relu(res4e+branch2, 'relu')
 
     dropout4 = tf.nn.dropout(res4f, self.keep_prob, name='drop4')

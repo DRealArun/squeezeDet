@@ -31,6 +31,7 @@ class SqueezeDet(ModelSkeleton):
     """NN architecture."""
 
     mc = self.mc
+    freeze_weight = mc.TRAIN_ONLY_LAST_LAYER
     num_mask_params = 4
     if mc.EIGHT_POINT_REGRESSION:
       num_mask_params = 8
@@ -47,33 +48,33 @@ class SqueezeDet(ModelSkeleton):
         'pool1', conv1, size=3, stride=2, padding='VALID')
 
     fire2 = self._fire_layer(
-        'fire2', pool1, s1x1=16, e1x1=64, e3x3=64, freeze=False)
+        'fire2', pool1, s1x1=16, e1x1=64, e3x3=64, freeze=freeze_weight)
     fire3 = self._fire_layer(
-        'fire3', fire2, s1x1=16, e1x1=64, e3x3=64, freeze=False)
+        'fire3', fire2, s1x1=16, e1x1=64, e3x3=64, freeze=freeze_weight)
     pool3 = self._pooling_layer(
         'pool3', fire3, size=3, stride=2, padding='VALID')
 
     fire4 = self._fire_layer(
-        'fire4', pool3, s1x1=32, e1x1=128, e3x3=128, freeze=False)
+        'fire4', pool3, s1x1=32, e1x1=128, e3x3=128, freeze=freeze_weight)
     fire5 = self._fire_layer(
-        'fire5', fire4, s1x1=32, e1x1=128, e3x3=128, freeze=False)
+        'fire5', fire4, s1x1=32, e1x1=128, e3x3=128, freeze=freeze_weight)
     pool5 = self._pooling_layer(
         'pool5', fire5, size=3, stride=2, padding='VALID')
 
     fire6 = self._fire_layer(
-        'fire6', pool5, s1x1=48, e1x1=192, e3x3=192, freeze=False)
+        'fire6', pool5, s1x1=48, e1x1=192, e3x3=192, freeze=freeze_weight)
     fire7 = self._fire_layer(
-        'fire7', fire6, s1x1=48, e1x1=192, e3x3=192, freeze=False)
+        'fire7', fire6, s1x1=48, e1x1=192, e3x3=192, freeze=freeze_weight)
     fire8 = self._fire_layer(
-        'fire8', fire7, s1x1=64, e1x1=256, e3x3=256, freeze=False)
+        'fire8', fire7, s1x1=64, e1x1=256, e3x3=256, freeze=freeze_weight)
     fire9 = self._fire_layer(
-        'fire9', fire8, s1x1=64, e1x1=256, e3x3=256, freeze=False)
+        'fire9', fire8, s1x1=64, e1x1=256, e3x3=256, freeze=freeze_weight)
 
     # Two extra fire modules that are not trained before
     fire10 = self._fire_layer(
-        'fire10', fire9, s1x1=96, e1x1=384, e3x3=384, freeze=False)
+        'fire10', fire9, s1x1=96, e1x1=384, e3x3=384, freeze=freeze_weight)
     fire11 = self._fire_layer(
-        'fire11', fire10, s1x1=96, e1x1=384, e3x3=384, freeze=False)
+        'fire11', fire10, s1x1=96, e1x1=384, e3x3=384, freeze=freeze_weight)
     dropout11 = tf.nn.dropout(fire11, self.keep_prob, name='drop11')
 
     num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)

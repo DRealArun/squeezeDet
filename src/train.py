@@ -52,6 +52,10 @@ tf.app.flags.DEFINE_integer('mask_parameterization', 4,
                             """Bounding box is 4, octagonal mask is 8. other values not supported""")
 tf.app.flags.DEFINE_boolean('eval_valid', False, """Evaluate on validation set every summary step ?""")
 tf.app.flags.DEFINE_boolean('log_anchors', False, """Use Log domain extracted anchors ?""")
+tf.app.flags.DEFINE_boolean('bounding_box_checkpoint', False, """Is the checkpoint file for bounding box prediction ?""")
+tf.app.flags.DEFINE_boolean('only_tune_last_layer', False, """Show only the last layer be trained ?""")
+tf.app.flags.DEFINE_float('warm_restart_lr', -1.0,
+                            """Learning rate to be used after warm restart""")
 
 def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
@@ -146,9 +150,9 @@ def train():
         'Selected neural net architecture not supported: {}'.format(FLAGS.net)
     if FLAGS.net == 'vgg16':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_vgg16_config(FLAGS.mask_parameterization)
+        mc = kitti_vgg16_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
+        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       print("Not using pretrained model for VGG, uncomment above line and comment below line to use pretrained model !")
@@ -156,25 +160,25 @@ def train():
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_res50_config(FLAGS.mask_parameterization)
+        mc = kitti_res50_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
+        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = ResNet50ConvDet(mc)
     elif FLAGS.net == 'squeezeDet':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization)
+        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
+        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDet(mc)
     elif FLAGS.net == 'squeezeDet+':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization)
+        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors)
+        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
@@ -313,14 +317,40 @@ def train():
     sess.run(init)
     glb_step = sess.run(model.global_step)
     print("Global step before restore:", glb_step)
+
+    print("Kernels before restore")
+    for v in tf.trainable_variables():
+      if 'kernels' in v.name:
+        print("First few weights of ", v.name, " are ", sess.run(v)[0,0,0,0:5])
+
+    print("Learning rate before restore", sess.run(model.lr))
+
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     if ckpt and ckpt.model_checkpoint_path:
-      saver.restore(sess, ckpt.model_checkpoint_path)
       print("Found checkpoint at step: ", int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]))
+      last_layer_name = model.preds.name.split('/')[0]
+      if FLAGS.mask_parameterization == 8 and FLAGS.bounding_box_checkpoint:
+        print("Loading only partial weights (except last layer", last_layer_name, ")")
+        saver_partial_weights = tf.train.Saver([v for v in tf.global_variables() if last_layer_name not in v.name])
+        saver_partial_weights.restore(sess, ckpt.model_checkpoint_path)
+        if FLAGS.warm_restart_lr != -1.0:
+          print("Resetting global step after updating the learning rate for warm restart to", FLAGS.warm_restart_lr)        
+          sess.run([model.global_step.assign(0), model.initial_learning_rate.assign(FLAGS.warm_restart_lr)])
+      else:
+        print("Loading all weights (including the last layer", last_layer_name, ")")
+        saver.restore(sess, ckpt.model_checkpoint_path)
     else:
       print("Checkpoint not found !")
     glb_step = sess.run(model.global_step)
     print("Global step after restore:", glb_step)
+    
+    print("Kernels after restore")
+    for v in tf.trainable_variables():
+      if 'kernels' in v.name:
+        print("First few weights of ", v.name, " are ", sess.run(v)[0,0,0,0:5])
+
+    print("Learning rate after restore", sess.run(model.lr))
+
     summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
     with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
       f.write("Global step after restore: "+str(glb_step)+"\n")

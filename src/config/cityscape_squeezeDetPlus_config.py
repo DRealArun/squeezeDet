@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def cityscape_squeezeDetPlus_config(mask_parameterization, log_anchors):
+def cityscape_squeezeDetPlus_config(mask_parameterization, log_anchors, tune_only_last_layer):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
@@ -42,6 +42,9 @@ def cityscape_squeezeDetPlus_config(mask_parameterization, log_anchors):
   if mask_parameterization == 8:
     mc.EIGHT_POINT_REGRESSION = True
 
+  mc.TRAIN_ONLY_LAST_LAYER = False
+  if tune_only_last_layer:
+    mc.TRAIN_ONLY_LAST_LAYER = True
   return mc
 
 def set_anchors(mc, log_anchors):

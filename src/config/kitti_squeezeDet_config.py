@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_squeezeDet_config(mask_parameterization):
+def kitti_squeezeDet_config(mask_parameterization, tune_only_last_layer):
   """Specify the parameters to tune below."""
   assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
@@ -41,6 +41,9 @@ def kitti_squeezeDet_config(mask_parameterization):
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
 
+  mc.TRAIN_ONLY_LAST_LAYER = False
+  if tune_only_last_layer:
+    mc.TRAIN_ONLY_LAST_LAYER = True
   return mc
 
 def set_anchors(mc):
