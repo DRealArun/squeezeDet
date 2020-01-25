@@ -157,6 +157,9 @@ def train():
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       print("Not using pretrained model for VGG, uncomment above line and comment below line to use pretrained model !")
       mc.LOAD_PRETRAINED_MODEL = False
+      if FLAGS.warm_restart_lr != -1.0:
+        print("Updating the learning rate for warm restart to", FLAGS.warm_restart_lr)
+        mc.LEARNING_RATE = FLAGS.warm_restart_lr
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
       if FLAGS.dataset == 'KITTI':
@@ -165,6 +168,9 @@ def train():
         mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
+      if FLAGS.warm_restart_lr != -1.0:
+        print("Updating the learning rate for warm restart to", FLAGS.warm_restart_lr)
+        mc.LEARNING_RATE = FLAGS.warm_restart_lr
       model = ResNet50ConvDet(mc)
     elif FLAGS.net == 'squeezeDet':
       if FLAGS.dataset == 'KITTI':
@@ -173,6 +179,9 @@ def train():
         mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
+      if FLAGS.warm_restart_lr != -1.0:
+        print("Updating the learning rate for warm restart to", FLAGS.warm_restart_lr)
+        mc.LEARNING_RATE = FLAGS.warm_restart_lr
       model = SqueezeDet(mc)
     elif FLAGS.net == 'squeezeDet+':
       if FLAGS.dataset == 'KITTI':
@@ -181,6 +190,9 @@ def train():
         mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
+      if FLAGS.warm_restart_lr != -1.0:
+        print("Updating the learning rate for warm restart to", FLAGS.warm_restart_lr)
+        mc.LEARNING_RATE = FLAGS.warm_restart_lr
       model = SqueezeDetPlus(mc)
 
     imdb_valid = None
@@ -334,8 +346,8 @@ def train():
         saver_partial_weights = tf.train.Saver([v for v in tf.global_variables() if last_layer_name not in v.name])
         saver_partial_weights.restore(sess, ckpt.model_checkpoint_path)
         if FLAGS.warm_restart_lr != -1.0:
-          print("Resetting global step after updating the learning rate for warm restart to", FLAGS.warm_restart_lr)        
-          sess.run([model.global_step.assign(0), model.initial_learning_rate.assign(FLAGS.warm_restart_lr)])
+          print("Resetting global step")
+          sess.run([model.global_step.assign(0)])
       else:
         print("Loading all weights (including the last layer", last_layer_name, ")")
         saver.restore(sess, ckpt.model_checkpoint_path)

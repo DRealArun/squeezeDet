@@ -378,8 +378,8 @@ class ModelSkeleton:
     mc = self.mc
 
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
-    self.initial_learning_rate = tf.Variable(mc.LEARNING_RATE, name='initial_learning_rate', trainable=False) # So that we can change learning rate during warm-restart
-    self.lr = tf.train.exponential_decay(self.initial_learning_rate,
+    # self.initial_learning_rate = tf.Variable(mc.LEARNING_RATE, name='initial_learning_rate', trainable=False) # So that we can change learning rate during warm-restart
+    self.lr = tf.train.exponential_decay(mc.LEARNING_RATE,
                                     self.global_step,
                                     mc.DECAY_STEPS,
                                     mc.LR_DECAY_FACTOR,
