@@ -33,8 +33,7 @@ class cityscape(input_reader):
     self.labels = csLabels
 
     self.permitted_classes = sorted(['person', 'rider', 'car', 'truck', 'bus', 'motorcycle', 'bicycle'])
-    self._rois, self._poly = self._load_cityscape_annotations(mc.EIGHT_POINT_REGRESSION) # ignore self._poly if mc.EIGHT_POINT_REGRESSION = False
-
+    self._rois, self._poly, self._boundary_adhesions = self._load_cityscape_annotations(mc.EIGHT_POINT_REGRESSION) # ignore self._poly if mc.EIGHT_POINT_REGRESSION = False
     self._perm_idx = None
     self._cur_idx = 0
     self._shuffle_image_idx()
@@ -104,6 +103,7 @@ class cityscape(input_reader):
       idx2polygons: dictionary mapping image name to the raw binary mask polygons or None depending on include_8_point_masks. 
     """
     idx2annotation = {}
+    idx2boundaryadhesions = {}
     if include_8_point_masks:
       idx2polygons = {}
     else:
@@ -111,6 +111,7 @@ class cityscape(input_reader):
     rejected_image_ids = []
     for index in self._image_idx:
       bboxes = []
+      boundaryadhesions = []
       if include_8_point_masks:
         polygons = []
       filename = os.path.join(self._label_path, index[:-11]+'gtFine_polygons.json')
@@ -137,19 +138,34 @@ class cityscape(input_reader):
                   'Invalid bounding box y-coord ymin {} or ymax {} at {}.txt' \
                       .format(ymin, ymax, index)
               bboxes.append([cx, cy, w, h, cls])
+              # Since we use only box to determine boundaryadhesion, it is common for ,
+              # both 8 and 4 point
+              boundaryadhesion = [0]*4
+              # Not mutually exclusive
+              if xmin == 0:
+                boundaryadhesion[0] = True
+              if ymin == 0:
+                boundaryadhesion[1] = True
+              if xmax == imgWidth:
+                boundaryadhesion[2] = True
+              if ymax == imgHeight:
+                boundaryadhesion[3] = True
+              boundaryadhesions.append(boundaryadhesion)
               if include_8_point_masks:
                 polygons.append([imgHeight, imgWidth, polygon])
+
       # assert len(bboxes) !=0, "Error here empty bounding box appending"+str(bboxes)
       if len(bboxes) == 0:
         rejected_image_ids.append(index)
       else:
         idx2annotation[index] = bboxes
+        idx2boundaryadhesions[index] = boundaryadhesions
         if include_8_point_masks:
           idx2polygons[index] = polygons
     print("Rejected Image ids in", self._image_set, "- set are", rejected_image_ids)
     for id_val in rejected_image_ids:
       self._image_idx.remove(id_val) #Assuming filenames are not repeated in the text file.
-    return idx2annotation, idx2polygons
+    return idx2annotation, idx2polygons, idx2boundaryadhesions
 
   def evaluate_detections(self, eval_dir, global_step, all_boxes):
     """Evaluate detection results.

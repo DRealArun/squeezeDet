@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_squeezeDetPlus_config(mask_parameterization, tune_only_last_layer):
+def kitti_squeezeDetPlus_config(mask_parameterization, tune_only_last_layer, asymmetric_encoding):
   """Specify the parameters to tune below."""
   assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
@@ -44,6 +44,7 @@ def kitti_squeezeDetPlus_config(mask_parameterization, tune_only_last_layer):
   mc.TRAIN_ONLY_LAST_LAYER = False
   if tune_only_last_layer:
     mc.TRAIN_ONLY_LAST_LAYER = True
+  mc.ASYMMETRIC_ENCODING = asymmetric_encoding
   return mc
 
 def set_anchors(mc):

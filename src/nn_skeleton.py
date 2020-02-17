@@ -99,6 +99,9 @@ class ModelSkeleton:
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
+    # Tensor representing edge cases
+    self.ph_edge_adhesions = tf.placeholder(
+        tf.bool, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='edge_adhesions')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -109,21 +112,22 @@ class ModelSkeleton:
     self.FIFOQueue = tf.FIFOQueue(
         capacity=mc.QUEUE_CAPACITY,
         dtypes=[tf.float32, tf.float32, tf.float32, 
-                tf.float32, tf.float32],
+                tf.float32, tf.float32, tf.bool],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
                 [mc.ANCHORS, self.num_mask_params],
                 [mc.ANCHORS, self.num_mask_params],
-                [mc.ANCHORS, mc.CLASSES]],
+                [mc.ANCHORS, mc.CLASSES],
+                [mc.ANCHORS, 4]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
         [self.ph_image_input, self.ph_input_mask,
-         self.ph_box_delta_input, self.ph_box_input, self.ph_labels]
+         self.ph_box_delta_input, self.ph_box_input, self.ph_labels, self.ph_edge_adhesions]
     )
 
     self.image_input, self.input_mask, self.box_delta_input, \
-        self.box_input, self.labels = tf.train.batch(
+        self.box_input, self.labels, self.edge_adhesions = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
 
@@ -190,29 +194,46 @@ class ModelSkeleton:
           delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
               self.pred_box_delta, axis=2)
         else:
-          delta_x, delta_y, delta_w, delta_h = tf.unstack(
-              self.pred_box_delta, axis=2)
+          if mc.ASYMMETRIC_ENCODING:
+            delta_xmin, delta_ymin, delta_xmax, delta_ymax = tf.unstack(
+                self.pred_box_delta, axis=2)
+          else:
+            delta_x, delta_y, delta_w, delta_h = tf.unstack(
+                self.pred_box_delta, axis=2)
 
         anchor_x = mc.ANCHOR_BOX[:, 0]
         anchor_y = mc.ANCHOR_BOX[:, 1]
         anchor_w = mc.ANCHOR_BOX[:, 2]
         anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        box_center_x = tf.identity(
-            anchor_x + delta_x * anchor_w, name='bbox_cx')
-        box_center_y = tf.identity(
-            anchor_y + delta_y * anchor_h, name='bbox_cy')
-        box_width = tf.identity(
-            anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
-            name='bbox_width')
-        box_height = tf.identity(
-            anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
-            name='bbox_height')
-
-        self._activation_summary(delta_x, 'delta_x')
-        self._activation_summary(delta_y, 'delta_y')
-        self._activation_summary(delta_w, 'delta_w')
-        self._activation_summary(delta_h, 'delta_h')
+        if mc.ASYMMETRIC_ENCODING:
+          xmins_a, ymins_a, xmaxs_a, ymaxs_a = util.bbox_transform(np.transpose(mc.ANCHOR_BOX))
+          xmins = tf.identity(xmins_a + delta_xmin * anchor_w, name='bbox_xmin_uncropped') 
+          ymins = tf.identity(ymins_a + delta_ymin * anchor_h, name='bbox_ymin_uncropped') 
+          xmaxs = tf.identity(xmaxs_a + delta_xmax * anchor_w, name='bbox_xmax_uncropped') 
+          ymaxs = tf.identity(ymaxs_a + delta_ymax * anchor_h, name='bbox_ymax_uncropped')
+          box_center_x, box_center_y, box_width, box_height = util.bbox_transform_inv(
+                [xmins, ymins, xmaxs, ymaxs])
+          self._activation_summary(delta_xmin, 'delta_xmin')
+          self._activation_summary(delta_ymin, 'delta_ymin')
+          self._activation_summary(delta_xmax, 'delta_xmax')
+          self._activation_summary(delta_ymax, 'delta_ymax')
+              
+        else:  
+          box_center_x = tf.identity(
+              anchor_x + delta_x * anchor_w, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * anchor_h, name='bbox_cy')
+          box_width = tf.identity(
+              anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
+              name='bbox_width')
+          box_height = tf.identity(
+              anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
+              name='bbox_height')
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(delta_w, 'delta_w')
+          self._activation_summary(delta_h, 'delta_h')
 
         self._activation_summary(box_center_x, 'bbox_cx')
         self._activation_summary(box_center_y, 'bbox_cy')
@@ -248,9 +269,14 @@ class ModelSkeleton:
           xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
             [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
         else:
-          xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
-              [box_center_x, box_center_y, box_width, box_height])
+          if not mc.ASYMMETRIC_ENCODING:
+            xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
+                [box_center_x, box_center_y, box_width, box_height])
 
+        self.det_boxes_uncropped = tf.transpose(
+              tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+              (1, 2, 0), name='bbox_uncropped'
+        )
         # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
         # pixels. Same for y.
         xmins = tf.minimum(
@@ -361,10 +387,12 @@ class ModelSkeleton:
       tf.summary.scalar('mean iou', tf.reduce_sum(self.ious)/self.num_objects)
 
     with tf.variable_scope('bounding_box_regression') as scope:
+      self.scaling =  tf.logical_not(self.edge_adhesions)
+      self.scaling = tf.cast(self.scaling, dtype=self.pred_box_delta.dtype)
       self.bbox_loss = tf.truediv(
           tf.reduce_sum(
               mc.LOSS_COEF_BBOX * tf.square(
-                  self.input_mask*(self.pred_box_delta-self.box_delta_input))),
+                  self.input_mask*(self.scaling*(self.pred_box_delta-self.box_delta_input)))),
           self.num_objects,
           name='bbox_loss'
       )

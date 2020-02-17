@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_layer):
+def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_layer, asymmetric_encoding):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
@@ -45,6 +45,7 @@ def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_la
   mc.TRAIN_ONLY_LAST_LAYER = False
   if tune_only_last_layer:
     mc.TRAIN_ONLY_LAST_LAYER = True
+  mc.ASYMMETRIC_ENCODING = asymmetric_encoding
   return mc
 
 def set_anchors(mc, log_anchors):

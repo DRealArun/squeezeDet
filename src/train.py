@@ -56,11 +56,14 @@ tf.app.flags.DEFINE_boolean('bounding_box_checkpoint', False, """Is the checkpoi
 tf.app.flags.DEFINE_boolean('only_tune_last_layer', False, """Show only the last layer be trained ?""")
 tf.app.flags.DEFINE_float('warm_restart_lr', -1.0,
                             """Learning rate to be used after warm restart""")
+tf.app.flags.DEFINE_boolean('asymmetric_encoding', False,
+                            """If asymmetric encoding is to be used""")
 
-def _draw_box(im, box_list, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
+def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
   bkp_im = copy.deepcopy(im)
+  box_list = copy.deepcopy(box_list_pre)
   ht, wd, ch = np.shape(im)
   for bbox, label in zip(box_list, label_list):
     if form == 'center':
@@ -150,9 +153,9 @@ def train():
         'Selected neural net architecture not supported: {}'.format(FLAGS.net)
     if FLAGS.net == 'vgg16':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_vgg16_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
+        mc = kitti_vgg16_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
+        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       mc.IS_TRAINING = True
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       print("Not using pretrained model for VGG, uncomment above line and comment below line to use pretrained model !")
@@ -163,9 +166,9 @@ def train():
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_res50_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
+        mc = kitti_res50_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
+        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
@@ -174,9 +177,9 @@ def train():
       model = ResNet50ConvDet(mc)
     elif FLAGS.net == 'squeezeDet':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
+        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
+        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
@@ -185,9 +188,9 @@ def train():
       model = SqueezeDet(mc)
     elif FLAGS.net == 'squeezeDet+':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer)
+        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer)
+        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
@@ -242,15 +245,15 @@ def train():
       if eval_valid:
         # Only for validation set
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-          bbox_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
+          bbox_per_batch, edge_adhesions_per_batch = imdb_valid.read_batch(shuffle=False, wrap_around=False)
         keep_prob_value = 1.0
       else:
         image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-            bbox_per_batch = imdb.read_batch()
+            bbox_per_batch, edge_adhesions_per_batch = imdb.read_batch()
         keep_prob_value = mc.DROP_OUT_PROB
 
-      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
-          = [], [], [], [], []
+      label_indices, bbox_indices, box_delta_values, mask_indices, box_values, edge_adhesions, edge_indices\
+          = [], [], [], [], [], [], []
       aidx_set = set()
       num_discarded_labels = 0
       num_labels = 0
@@ -266,6 +269,9 @@ def train():
                 [[i, aidx_per_batch[i][j], k] for k in range(FLAGS.mask_parameterization)])
             box_delta_values.extend(box_delta_per_batch[i][j])
             box_values.extend(bbox_per_batch[i][j])
+            edge_adhesions.extend(edge_adhesions_per_batch[i][j])
+            edge_indices.extend(
+                [[i, aidx_per_batch[i][j], k] for k in range(4)])
           else:
             num_discarded_labels += 1
 
@@ -279,12 +285,14 @@ def train():
         box_delta_input = model.ph_box_delta_input
         box_input = model.ph_box_input
         labels = model.ph_labels
+        edge_scenarios = model.ph_edge_adhesions
       else:
         image_input = model.image_input
         input_mask = model.input_mask
         box_delta_input = model.box_delta_input
         box_input = model.box_input
         labels = model.labels
+        edge_scenarios = model.edge_adhesions
 
       feed_dict = {
           image_input: image_per_batch,
@@ -303,7 +311,10 @@ def train():
               label_indices,
               [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
               [1.0]*len(label_indices)),
-          model.keep_prob: keep_prob_value
+          model.keep_prob: keep_prob_value,
+          edge_scenarios: sparse_to_dense(
+              edge_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              edge_adhesions),
       }
 
       return feed_dict, image_per_batch, label_per_batch, bbox_per_batch

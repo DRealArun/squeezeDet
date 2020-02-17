@@ -11,7 +11,7 @@ from dataset.imdb import imdb
 from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
-from utils.util import iou, batch_iou
+from utils.util import iou, batch_iou, bbox_transform
 
 def decode_parameterization(mask_vector):
   """Decodes the octagonal parameterization of the mask to get
@@ -205,6 +205,7 @@ class input_reader(imdb):
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
+    boundary_adhesions_per_batch = []
     if mc.DEBUG_MODE:
       avg_ious = 0.
       num_objects = 0.
@@ -232,6 +233,8 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
+      boundary_adhesions_per_batch.append(self._boundary_adhesions[idx])
+
       if mc.EIGHT_POINT_REGRESSION:
         polygons = [b[2] for b in self._poly[idx][:]]
       is_drift_performed = False
@@ -307,6 +310,7 @@ class input_reader(imdb):
           if width == 0 or height == 0:
             print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
             del label_per_batch[img_ct][k]
+            del boundary_adhesions_per_batch[img_ct][k]
             continue
           assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
           points = decode_parameterization(mask_vector)
@@ -356,12 +360,22 @@ class input_reader(imdb):
           box_cx, box_cy, box_w, box_h = gt_bbox[i]
           delta = [0]*4
 
-        delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
-        delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
-        delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2]) # if box_w or box_h = 0, the box is not included
-        delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
+        if mc.ASYMMETRIC_ENCODING:
+          # Use spatial domain anchors
+          xmin_t, ymin_t, xmax_t, ymax_t = bbox_transform([box_cx, box_cy, box_w, box_h])
+          xmin_a, ymin_a, xmax_a, ymax_a = bbox_transform(mc.ANCHOR_BOX[aidx])
+          delta[0] = (xmin_t - xmin_a)/mc.ANCHOR_BOX[aidx][2]
+          delta[1] = (ymin_t - ymin_a)/mc.ANCHOR_BOX[aidx][3]
+          delta[2] = (xmax_t - xmax_a)/mc.ANCHOR_BOX[aidx][2]
+          delta[3] = (ymax_t - ymax_a)/mc.ANCHOR_BOX[aidx][3]
+        else:
+          delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
+          delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
+          delta[2] = np.log(box_w/mc.ANCHOR_BOX[aidx][2]) # if box_w or box_h = 0, the box is not included
+          delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
         if mc.EIGHT_POINT_REGRESSION:
+          assert not mc.ASYMMETRIC_ENCODING, "ASYMMETRIC_ENCODING not supported with EIGHT_POINT_REGRESSION"
           EPSILON = 1e-8
           anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
           delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)
@@ -383,6 +397,6 @@ class input_reader(imdb):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, boundary_adhesions_per_batch
 
 
