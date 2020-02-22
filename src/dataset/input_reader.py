@@ -10,6 +10,7 @@ import math
 from dataset.imdb import imdb
 from PIL import Image, ImageFont, ImageDraw
 import cv2
+import copy
 import numpy as np
 from utils.util import iou, batch_iou, bbox_transform
 
@@ -82,6 +83,10 @@ class input_reader(imdb):
 
   def __init__(self, name, mc):
     imdb.__init__(self, name, mc)
+    self.left_margin = 0
+    self.right_margin = 0
+    self.top_margin = 0
+    self.bottom_margin = 0
 
 
   def _get_perpendicular_distance(self, pt1, m, pt2):
@@ -233,7 +238,7 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      boundary_adhesions_per_batch.append(self._boundary_adhesions[idx])
+      boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._boundary_adhesions[idx][:]])
 
       if mc.EIGHT_POINT_REGRESSION:
         polygons = [b[2] for b in self._poly[idx][:]]
@@ -245,7 +250,7 @@ class input_reader(imdb):
             'mc.DRIFT_X and mc.DRIFT_Y must be >= 0'
 
         if mc.DRIFT_X > 0 or mc.DRIFT_Y > 0:
-          # Ensures that gt boundibg box is not cut out of the image
+          # Ensures that gt bounding box is not cut out of the image
           max_drift_x = min(gt_bbox_pre[:, 0] - gt_bbox_pre[:, 2]/2.0+1)
           max_drift_y = min(gt_bbox_pre[:, 1] - gt_bbox_pre[:, 3]/2.0+1)
           assert max_drift_x >= 0 and max_drift_y >= 0, 'bbox out of image'
@@ -266,13 +271,43 @@ class input_reader(imdb):
           distorted_im = np.zeros(
               (int(orig_h), int(orig_w), 3)).astype(np.float32)
           distorted_im[dist_y:, dist_x:, :] = im[orig_y:, orig_x:, :]
+          dist_h, dist_w, _ = [float(v) for v in distorted_im.shape]
           im = distorted_im
+
+          if dx < 0:
+            # Recheck right boundary
+            xmax_temp = gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2)
+            temp_ids = np.where(xmax_temp >= dist_w-1-self.right_margin)[0]
+            if len(temp_ids) > 0:
+              boundary_adhesion_pre[temp_ids,2] = True # Right boundary
+          if dy < 0:
+            # Recheck bottom boundary
+            ymax_temp = gt_bbox_pre[:, 1] + (gt_bbox_pre[:, 3]/2)
+            temp_ids = np.where(ymax_temp >= dist_h-1-self.bottom_margin)[0]
+            if len(temp_ids) > 0:
+              boundary_adhesion_pre[temp_ids,3] = True # Bottom boundary
+          if dx > 0:
+            # Recheck left boundary
+            xmin_temp = gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2)
+            temp_ids = np.where(xmin_temp <= self.left_margin)[0]
+            if len(temp_ids) > 0:
+              boundary_adhesion_pre[temp_ids,0] = True # Left boundary
+          if dy > 0:
+            # Recheck top boundary
+            ymin_temp = gt_bbox_pre[:, 1] - (gt_bbox_pre[:, 3]/2)
+            temp_ids = np.where(ymin_temp <= self.top_margin)[0]
+            if len(temp_ids) > 0:
+              boundary_adhesion_pre[temp_ids,1] = True # Top boundary
+
 
         # Flip image with 50% probability
         if np.random.randint(2) > 0.5:
           im = im[:, ::-1, :]
           is_flip_performed = True
           gt_bbox_pre[:, 0] = orig_w - 1 - gt_bbox_pre[:, 0]
+          temp = copy.deepcopy(boundary_adhesion_pre[:,0])
+          boundary_adhesion_pre[:,0] = boundary_adhesion_pre[:,2]
+          boundary_adhesion_pre[:,2] = temp 
 
       # scale image
       im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
@@ -310,7 +345,6 @@ class input_reader(imdb):
           if width == 0 or height == 0:
             print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
             del label_per_batch[img_ct][k]
-            del boundary_adhesions_per_batch[img_ct][k]
             continue
           assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
           points = decode_parameterization(mask_vector)
@@ -321,6 +355,7 @@ class input_reader(imdb):
           gt_bbox.append(mask_vector)
 
       bbox_per_batch.append(gt_bbox)
+      boundary_adhesions_per_batch.append(boundary_adhesion_pre)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()

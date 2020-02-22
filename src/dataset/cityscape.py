@@ -26,6 +26,10 @@ class cityscape(input_reader):
     self._label_path = os.path.join(self._data_root_path, str(image_set), 'instance')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
+    self.left_margin = 6
+    self.right_margin = 5
+    self.top_margin = 5
+    self.bottom_margin = 5
 
     # a list of string indices of images in the directory
     self._image_idx = self._load_image_set_idx() 
@@ -142,13 +146,13 @@ class cityscape(input_reader):
               # both 8 and 4 point
               boundaryadhesion = [0]*4
               # Not mutually exclusive
-              if xmin == 0:
+              if cx - (w/2) <= self.left_margin:
                 boundaryadhesion[0] = True
-              if ymin == 0:
+              if cy - (h/2) <= self.top_margin:
                 boundaryadhesion[1] = True
-              if xmax == imgWidth:
+              if cx + (w/2) >= (imgWidth-1-self.right_margin):
                 boundaryadhesion[2] = True
-              if ymax == imgHeight:
+              if cy + (h/2) >= (imgHeight-1-self.bottom_margin):
                 boundaryadhesion[3] = True
               boundaryadhesions.append(boundaryadhesion)
               if include_8_point_masks:
