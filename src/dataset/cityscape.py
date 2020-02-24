@@ -88,9 +88,9 @@ class cityscape(input_reader):
     # cc = np.array(cc)
     rr, cc = outline[:,1], outline[:,0]
     xmin = max(min(cc), 0)
-    xmax = min(max(cc), width)
+    xmax = min(max(cc), width-1)
     ymin = max(min(rr), 0)
-    ymax = min(max(rr), height)
+    ymax = min(max(rr), height-1)
     width       = xmax - xmin
     height      = ymax - ymin
     center_x  = xmin + 0.5*width 

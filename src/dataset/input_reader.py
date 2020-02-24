@@ -245,14 +245,17 @@ class input_reader(imdb):
       is_drift_performed = False
       is_flip_performed = False
 
+      assert np.all((gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2.0)) >= 0) or \
+              np.all((gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2.0)) < orig_w), "Error in the bounding boxes befire augmentation"
+
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
             'mc.DRIFT_X and mc.DRIFT_Y must be >= 0'
 
         if mc.DRIFT_X > 0 or mc.DRIFT_Y > 0:
           # Ensures that gt bounding box is not cut out of the image
-          max_drift_x = min(gt_bbox_pre[:, 0] - gt_bbox_pre[:, 2]/2.0+1)
-          max_drift_y = min(gt_bbox_pre[:, 1] - gt_bbox_pre[:, 3]/2.0+1)
+          max_drift_x = math.floor(min(gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2.0)+1))
+          max_drift_y = math.floor(min(gt_bbox_pre[:, 1] - (gt_bbox_pre[:, 3]/2.0)+1))
           assert max_drift_x >= 0 and max_drift_y >= 0, 'bbox out of image'
 
           dy = np.random.randint(-mc.DRIFT_Y, min(mc.DRIFT_Y+1, max_drift_y))
@@ -318,6 +321,9 @@ class input_reader(imdb):
       y_scale = mc.IMAGE_HEIGHT/orig_h
       gt_bbox_pre[:, 0::2] = gt_bbox_pre[:, 0::2]*x_scale
       gt_bbox_pre[:, 1::2] = gt_bbox_pre[:, 1::2]*y_scale
+
+      assert np.all((gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2.0)) >= 0) or \
+              np.all((gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2.0)) < orig_w), "Error in the bounding boxes after augmentation"
       if mc.EIGHT_POINT_REGRESSION:
         for p in range(len(polygons)):
           poly = np.array(polygons[p])
