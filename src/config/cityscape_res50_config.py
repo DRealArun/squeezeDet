@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import base_model_config
 
-def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_layer, asymmetric_encoding):
+def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_layer, encoding_type):
   """Specify the parameters to tune below."""
   mc                       = base_model_config('CITYSCAPE')
 
@@ -36,6 +36,7 @@ def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_la
   mc.DRIFT_Y               = 100
   mc.EXCLUDE_HARD_EXAMPLES = False
 
+  mc.ENCODING_TYPE         = encoding_type
   mc.ANCHOR_BOX            = set_anchors(mc, log_anchors)
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
@@ -45,13 +46,12 @@ def cityscape_res50_config(mask_parameterization, log_anchors, tune_only_last_la
   mc.TRAIN_ONLY_LAST_LAYER = False
   if tune_only_last_layer:
     mc.TRAIN_ONLY_LAST_LAYER = True
-  mc.ASYMMETRIC_ENCODING = asymmetric_encoding
   return mc
 
 def set_anchors(mc, log_anchors):
   H, W, B = 32, 64, 9 # if 31 and 63 there is miss-match in dimensions
   if log_anchors:
-    print("Using Log domain extracted anchors")
+    print("Using Log domain extracted anchors and ", mc.ENCODING_TYPE, "encoding type")
     anchor_shapes = np.reshape(
       [np.array(
           [[8.01, 11.25], [11.45, 26.49], [18.02, 13.88],
@@ -60,7 +60,7 @@ def set_anchors(mc, log_anchors):
       (H, W, B, 2)
     )
   else:
-    print("Using Spatial domain extracted anchors")
+    print("Using Linear domain extracted anchors and ", mc.ENCODING_TYPE, "encoding type")
     anchor_shapes = np.reshape(
         [np.array(
             [[17.31, 18.20], [35.13, 39.49], [99.93, 66.42],

@@ -194,11 +194,11 @@ class ModelSkeleton:
           delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
               self.pred_box_delta, axis=2)
         else:
-          if mc.ASYMMETRIC_ENCODING:
-            delta_xmin, delta_ymin, delta_xmax, delta_ymax = tf.unstack(
+          if mc.ENCODING_TYPE == 'normal':
+            delta_x, delta_y, delta_w, delta_h = tf.unstack(
                 self.pred_box_delta, axis=2)
           else:
-            delta_x, delta_y, delta_w, delta_h = tf.unstack(
+            delta_xmin, delta_ymin, delta_xmax, delta_ymax = tf.unstack(
                 self.pred_box_delta, axis=2)
 
         anchor_x = mc.ANCHOR_BOX[:, 0]
@@ -206,7 +206,7 @@ class ModelSkeleton:
         anchor_w = mc.ANCHOR_BOX[:, 2]
         anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        if mc.ASYMMETRIC_ENCODING:
+        if mc.ENCODING_TYPE == 'asymmetric_linear':
           xmins_a, ymins_a, xmaxs_a, ymaxs_a = util.bbox_transform(np.transpose(mc.ANCHOR_BOX))
           xmins = tf.identity(xmins_a + delta_xmin * anchor_w, name='bbox_xmin_uncropped') 
           ymins = tf.identity(ymins_a + delta_ymin * anchor_h, name='bbox_ymin_uncropped') 
@@ -218,7 +218,18 @@ class ModelSkeleton:
           self._activation_summary(delta_ymin, 'delta_ymin')
           self._activation_summary(delta_xmax, 'delta_xmax')
           self._activation_summary(delta_ymax, 'delta_ymax')
-              
+        elif mc.ENCODING_TYPE == 'asymmetric_log':
+          EPSILON = 1
+          xmins = tf.identity(anchor_x - (anchor_w * (util.safe_exp(delta_xmin, mc.EXP_THRESH)-EPSILON)), name='bbox_xmin_uncropped') 
+          ymins = tf.identity(anchor_y - (anchor_h * (util.safe_exp(delta_ymin, mc.EXP_THRESH)-EPSILON)), name='bbox_ymin_uncropped') 
+          xmaxs = tf.identity(anchor_x + (anchor_w * (util.safe_exp(delta_xmax, mc.EXP_THRESH)-EPSILON)), name='bbox_xmax_uncropped') 
+          ymaxs = tf.identity(anchor_y + (anchor_h * (util.safe_exp(delta_ymax, mc.EXP_THRESH)-EPSILON)), name='bbox_ymax_uncropped')
+          box_center_x, box_center_y, box_width, box_height = util.bbox_transform_inv(
+                [xmins, ymins, xmaxs, ymaxs])
+          self._activation_summary(delta_xmin, 'delta_xmin')
+          self._activation_summary(delta_ymin, 'delta_ymin')
+          self._activation_summary(delta_xmax, 'delta_xmax')
+          self._activation_summary(delta_ymax, 'delta_ymax')
         else:  
           box_center_x = tf.identity(
               anchor_x + delta_x * anchor_w, name='bbox_cx')
@@ -269,7 +280,7 @@ class ModelSkeleton:
           xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
             [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
         else:
-          if not mc.ASYMMETRIC_ENCODING:
+          if mc.ENCODING_TYPE == 'normal':
             xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
                 [box_center_x, box_center_y, box_width, box_height])
 

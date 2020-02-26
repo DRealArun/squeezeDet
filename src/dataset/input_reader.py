@@ -401,14 +401,22 @@ class input_reader(imdb):
           box_cx, box_cy, box_w, box_h = gt_bbox[i]
           delta = [0]*4
 
-        if mc.ASYMMETRIC_ENCODING:
-          # Use spatial domain anchors
+        if mc.ENCODING_TYPE == 'asymmetric_linear':
+          # Use linear domain anchors
           xmin_t, ymin_t, xmax_t, ymax_t = bbox_transform([box_cx, box_cy, box_w, box_h])
           xmin_a, ymin_a, xmax_a, ymax_a = bbox_transform(mc.ANCHOR_BOX[aidx])
           delta[0] = (xmin_t - xmin_a)/mc.ANCHOR_BOX[aidx][2]
           delta[1] = (ymin_t - ymin_a)/mc.ANCHOR_BOX[aidx][3]
           delta[2] = (xmax_t - xmax_a)/mc.ANCHOR_BOX[aidx][2]
           delta[3] = (ymax_t - ymax_a)/mc.ANCHOR_BOX[aidx][3]
+        elif mc.ENCODING_TYPE == 'asymmetric_log':
+          # Use log domain anchors
+          EPSILON = 1
+          xmin_t, ymin_t, xmax_t, ymax_t = bbox_transform([box_cx, box_cy, box_w, box_h])
+          delta[0] = np.log(max((mc.ANCHOR_BOX[aidx][0] - xmin_t)/mc.ANCHOR_BOX[aidx][2], 0) + EPSILON)
+          delta[1] = np.log(max((mc.ANCHOR_BOX[aidx][1] - ymin_t)/mc.ANCHOR_BOX[aidx][3], 0) + EPSILON)
+          delta[2] = np.log(max((xmax_t - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2], 0) + EPSILON)
+          delta[3] = np.log(max((ymax_t - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3], 0) + EPSILON)
         else:
           delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0])/mc.ANCHOR_BOX[aidx][2]
           delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1])/mc.ANCHOR_BOX[aidx][3]
@@ -416,7 +424,7 @@ class input_reader(imdb):
           delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
         if mc.EIGHT_POINT_REGRESSION:
-          assert not mc.ASYMMETRIC_ENCODING, "ASYMMETRIC_ENCODING not supported with EIGHT_POINT_REGRESSION"
+          assert mc.ENCODING_TYPE == 'normal', "asymmetric encoding is not supported with EIGHT_POINT_REGRESSION"
           EPSILON = 1e-8
           anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
           delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)

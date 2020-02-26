@@ -56,8 +56,8 @@ tf.app.flags.DEFINE_boolean('bounding_box_checkpoint', False, """Is the checkpoi
 tf.app.flags.DEFINE_boolean('only_tune_last_layer', False, """Show only the last layer be trained ?""")
 tf.app.flags.DEFINE_float('warm_restart_lr', -1.0,
                             """Learning rate to be used after warm restart""")
-tf.app.flags.DEFINE_boolean('asymmetric_encoding', False,
-                            """If asymmetric encoding is to be used""")
+tf.app.flags.DEFINE_string('encoding_type', 'normal',
+                            """what type of encoding to use""")
 
 def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
   assert form == 'center' or form == 'diagonal', \
@@ -161,9 +161,9 @@ def train():
         'Selected neural net architecture not supported: {}'.format(FLAGS.net)
     if FLAGS.net == 'vgg16':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_vgg16_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = kitti_vgg16_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = cityscape_vgg16_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       mc.IS_TRAINING = True
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       print("Not using pretrained model for VGG, uncomment above line and comment below line to use pretrained model !")
@@ -174,9 +174,9 @@ def train():
       model = VGG16ConvDet(mc)
     elif FLAGS.net == 'resnet50':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_res50_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = kitti_res50_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = cityscape_res50_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
@@ -185,9 +185,9 @@ def train():
       model = ResNet50ConvDet(mc)
     elif FLAGS.net == 'squeezeDet':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = kitti_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
@@ -196,9 +196,9 @@ def train():
       model = SqueezeDet(mc)
     elif FLAGS.net == 'squeezeDet+':
       if FLAGS.dataset == 'KITTI':
-        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = kitti_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       elif FLAGS.dataset == 'CITYSCAPE':
-        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.asymmetric_encoding)
+        mc = cityscape_squeezeDetPlus_config(FLAGS.mask_parameterization, FLAGS.log_anchors, FLAGS.only_tune_last_layer, FLAGS.encoding_type)
       mc.IS_TRAINING = True
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       if FLAGS.warm_restart_lr != -1.0:
