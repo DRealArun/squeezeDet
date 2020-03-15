@@ -398,15 +398,24 @@ class ModelSkeleton:
       tf.summary.scalar('mean iou', tf.reduce_sum(self.ious)/self.num_objects)
 
     with tf.variable_scope('bounding_box_regression') as scope:
-      self.scaling =  tf.logical_not(self.edge_adhesions)
-      self.scaling = tf.cast(self.scaling, dtype=self.pred_box_delta.dtype)
-      self.bbox_loss = tf.truediv(
-          tf.reduce_sum(
-              mc.LOSS_COEF_BBOX * tf.square(
-                  self.input_mask*(self.scaling*(self.pred_box_delta-self.box_delta_input)))),
-          self.num_objects,
-          name='bbox_loss'
-      )
+      if mc.ENCODING_TYPE != 'normal':
+        self.scaling =  tf.logical_not(self.edge_adhesions)
+        self.scaling = tf.cast(self.scaling, dtype=self.pred_box_delta.dtype)
+        self.bbox_loss = tf.truediv(
+            tf.reduce_sum(
+                mc.LOSS_COEF_BBOX * tf.square(
+                    self.input_mask*(self.scaling*(self.pred_box_delta-self.box_delta_input)))),
+            self.num_objects,
+            name='bbox_loss'
+        )
+      else:
+        self.bbox_loss = tf.truediv(
+            tf.reduce_sum(
+                mc.LOSS_COEF_BBOX * tf.square(
+                    self.input_mask*(self.pred_box_delta-self.box_delta_input))),
+            self.num_objects,
+            name='bbox_loss'
+        )
       tf.add_to_collection('losses', self.bbox_loss)
 
     # add above losses as well as weight decay losses to form the total loss
