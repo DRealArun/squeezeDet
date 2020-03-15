@@ -411,7 +411,7 @@ class input_reader(imdb):
           delta[3] = (ymax_t - ymax_a)/mc.ANCHOR_BOX[aidx][3]
         elif mc.ENCODING_TYPE == 'asymmetric_log':
           # Use log domain anchors
-          EPSILON = 1
+          EPSILON = 0.5
           xmin_t, ymin_t, xmax_t, ymax_t = bbox_transform([box_cx, box_cy, box_w, box_h])
           delta[0] = np.log(max((mc.ANCHOR_BOX[aidx][0] - xmin_t)/mc.ANCHOR_BOX[aidx][2], 0) + EPSILON)
           delta[1] = np.log(max((mc.ANCHOR_BOX[aidx][1] - ymin_t)/mc.ANCHOR_BOX[aidx][3], 0) + EPSILON)

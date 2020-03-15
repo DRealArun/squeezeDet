@@ -219,7 +219,7 @@ class ModelSkeleton:
           self._activation_summary(delta_xmax, 'delta_xmax')
           self._activation_summary(delta_ymax, 'delta_ymax')
         elif mc.ENCODING_TYPE == 'asymmetric_log':
-          EPSILON = 1
+          EPSILON = 0.5
           xmins = tf.identity(anchor_x - (anchor_w * (util.safe_exp(delta_xmin, mc.EXP_THRESH)-EPSILON)), name='bbox_xmin_uncropped') 
           ymins = tf.identity(anchor_y - (anchor_h * (util.safe_exp(delta_ymin, mc.EXP_THRESH)-EPSILON)), name='bbox_ymin_uncropped') 
           xmaxs = tf.identity(anchor_x + (anchor_w * (util.safe_exp(delta_xmax, mc.EXP_THRESH)-EPSILON)), name='bbox_xmax_uncropped') 
