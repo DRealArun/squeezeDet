@@ -144,7 +144,10 @@ class cityscape(input_reader):
               bboxes.append([cx, cy, w, h, cls])
               # Since we use only box to determine boundaryadhesion, it is common for ,
               # both 8 and 4 point
-              boundaryadhesion = [0]*4
+              if include_8_point_masks:
+                boundaryadhesion = [0]*8
+              else:
+                boundaryadhesion = [0]*4
               # Not mutually exclusive
               if cx - (w/2) <= self.left_margin:
                 boundaryadhesion[0] = True
@@ -154,6 +157,20 @@ class cityscape(input_reader):
                 boundaryadhesion[2] = True
               if cy + (h/2) >= (imgHeight-1-self.bottom_margin):
                 boundaryadhesion[3] = True
+
+              if include_8_point_masks:
+                # Derived adhesions
+                if cx - (w/2) <= self.left_margin or cy - (h/2) <= self.top_margin:
+                  boundaryadhesion[4] = True
+                if cy + (h/2) >= (imgHeight-1-self.bottom_margin) or cx - (w/2) <= self.left_margin:
+                  boundaryadhesion[5] = True
+                if cx + (w/2) >= (imgWidth-1-self.right_margin) or cy + (h/2) >= (imgHeight-1-self.bottom_margin):
+                  boundaryadhesion[6] = True
+                if cy - (h/2) <= self.top_margin or cx + (w/2) >= (imgWidth-1-self.right_margin):
+                  boundaryadhesion[7] = True
+                
+                
+
               boundaryadhesions.append(boundaryadhesion)
               if include_8_point_masks:
                 polygons.append([imgHeight, imgWidth, polygon])

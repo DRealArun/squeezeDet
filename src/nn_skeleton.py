@@ -80,6 +80,7 @@ class ModelSkeleton:
       self.num_mask_params = 8
     else:
       self.num_mask_params = 4
+    print("Number of mask params:", self.num_mask_params)
     self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
@@ -101,7 +102,7 @@ class ModelSkeleton:
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
     # Tensor representing edge cases
     self.ph_edge_adhesions = tf.placeholder(
-        tf.bool, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='edge_adhesions')
+        tf.bool, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='edge_adhesions')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -118,7 +119,7 @@ class ModelSkeleton:
                 [mc.ANCHORS, self.num_mask_params],
                 [mc.ANCHORS, self.num_mask_params],
                 [mc.ANCHORS, mc.CLASSES],
-                [mc.ANCHORS, 4]],
+                [mc.ANCHORS, self.num_mask_params]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
@@ -190,9 +191,14 @@ class ModelSkeleton:
     with tf.variable_scope('bbox') as scope:
       with tf.variable_scope('stretching'):
         if self.mc.EIGHT_POINT_REGRESSION:
-          delta_x, delta_y, delta_w, delta_h, \
-          delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
-              self.pred_box_delta, axis=2)
+          if mc.ENCODING_TYPE == 'normal':
+            delta_x, delta_y, delta_w, delta_h, \
+            delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
+                self.pred_box_delta, axis=2)
+          else:
+            delta_xmin, delta_ymin, delta_xmax, delta_ymax, \
+            delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
+                self.pred_box_delta, axis=2)
         else:
           if mc.ENCODING_TYPE == 'normal':
             delta_x, delta_y, delta_w, delta_h = tf.unstack(

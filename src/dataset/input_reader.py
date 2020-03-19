@@ -238,10 +238,13 @@ class input_reader(imdb):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._boundary_adhesions[idx][:]])
 
       if mc.EIGHT_POINT_REGRESSION:
         polygons = [b[2] for b in self._poly[idx][:]]
+        boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]] for b in self._boundary_adhesions[idx][:]])
+      else:
+        boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._boundary_adhesions[idx][:]])
+
       is_drift_performed = False
       is_flip_performed = False
 
@@ -277,40 +280,84 @@ class input_reader(imdb):
           dist_h, dist_w, _ = [float(v) for v in distorted_im.shape]
           im = distorted_im
 
-          if dx < 0:
-            # Recheck right boundary
-            xmax_temp = gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2)
-            temp_ids = np.where(xmax_temp >= dist_w-1-self.right_margin)[0]
-            if len(temp_ids) > 0:
-              boundary_adhesion_pre[temp_ids,2] = True # Right boundary
-          if dy < 0:
-            # Recheck bottom boundary
-            ymax_temp = gt_bbox_pre[:, 1] + (gt_bbox_pre[:, 3]/2)
-            temp_ids = np.where(ymax_temp >= dist_h-1-self.bottom_margin)[0]
-            if len(temp_ids) > 0:
-              boundary_adhesion_pre[temp_ids,3] = True # Bottom boundary
-          if dx > 0:
-            # Recheck left boundary
-            xmin_temp = gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2)
-            temp_ids = np.where(xmin_temp <= self.left_margin)[0]
-            if len(temp_ids) > 0:
-              boundary_adhesion_pre[temp_ids,0] = True # Left boundary
-          if dy > 0:
-            # Recheck top boundary
-            ymin_temp = gt_bbox_pre[:, 1] - (gt_bbox_pre[:, 3]/2)
-            temp_ids = np.where(ymin_temp <= self.top_margin)[0]
-            if len(temp_ids) > 0:
-              boundary_adhesion_pre[temp_ids,1] = True # Top boundary
-
+          if mc.EIGHT_POINT_REGRESSION:
+            if dx < 0:
+              # Recheck right boundary
+              xmax_temp = gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2)
+              temp_ids = np.where(xmax_temp >= dist_w-1-self.right_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,2] = True # Right boundary
+                boundary_adhesion_pre[temp_ids,7] = True # Right top boundary
+                boundary_adhesion_pre[temp_ids,6] = True # Right bottom boundary
+            if dy < 0:
+              # Recheck bottom boundary
+              ymax_temp = gt_bbox_pre[:, 1] + (gt_bbox_pre[:, 3]/2)
+              temp_ids = np.where(ymax_temp >= dist_h-1-self.bottom_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,3] = True # Bottom boundary
+                boundary_adhesion_pre[temp_ids,6] = True # Bottom right boundary
+                boundary_adhesion_pre[temp_ids,5] = True # Bottom left boundary
+            if dx > 0:
+              # Recheck left boundary
+              xmin_temp = gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2)
+              temp_ids = np.where(xmin_temp <= self.left_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,0] = True # Left boundary
+                boundary_adhesion_pre[temp_ids,4] = True # Left top boundary
+                boundary_adhesion_pre[temp_ids,5] = True # Left bottom boundary
+            if dy > 0:
+              # Recheck top boundary
+              ymin_temp = gt_bbox_pre[:, 1] - (gt_bbox_pre[:, 3]/2)
+              temp_ids = np.where(ymin_temp <= self.top_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,1] = True # Top boundary
+                boundary_adhesion_pre[temp_ids,4] = True # Top left boundary
+                boundary_adhesion_pre[temp_ids,7] = True # Top right boundary
+          else:
+            if dx < 0:
+              # Recheck right boundary
+              xmax_temp = gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2)
+              temp_ids = np.where(xmax_temp >= dist_w-1-self.right_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,2] = True # Right boundary
+            if dy < 0:
+              # Recheck bottom boundary
+              ymax_temp = gt_bbox_pre[:, 1] + (gt_bbox_pre[:, 3]/2)
+              temp_ids = np.where(ymax_temp >= dist_h-1-self.bottom_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,3] = True # Bottom boundary
+            if dx > 0:
+              # Recheck left boundary
+              xmin_temp = gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2)
+              temp_ids = np.where(xmin_temp <= self.left_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,0] = True # Left boundary
+            if dy > 0:
+              # Recheck top boundary
+              ymin_temp = gt_bbox_pre[:, 1] - (gt_bbox_pre[:, 3]/2)
+              temp_ids = np.where(ymin_temp <= self.top_margin)[0]
+              if len(temp_ids) > 0:
+                boundary_adhesion_pre[temp_ids,1] = True # Top boundary
 
         # Flip image with 50% probability
         if np.random.randint(2) > 0.5:
           im = im[:, ::-1, :]
           is_flip_performed = True
           gt_bbox_pre[:, 0] = orig_w - 1 - gt_bbox_pre[:, 0]
-          temp = copy.deepcopy(boundary_adhesion_pre[:,0])
-          boundary_adhesion_pre[:,0] = boundary_adhesion_pre[:,2]
-          boundary_adhesion_pre[:,2] = temp 
+          if mc.EIGHT_POINT_REGRESSION:
+            temp1 = copy.deepcopy(boundary_adhesion_pre[:,0])
+            temp2 = copy.deepcopy(boundary_adhesion_pre[:,4])
+            temp3 = copy.deepcopy(boundary_adhesion_pre[:,5])
+            boundary_adhesion_pre[:,0] = boundary_adhesion_pre[:,2]
+            boundary_adhesion_pre[:,4] = boundary_adhesion_pre[:,7]
+            boundary_adhesion_pre[:,5] = boundary_adhesion_pre[:,6]
+            boundary_adhesion_pre[:,2] = temp1
+            boundary_adhesion_pre[:,7] = temp2
+            boundary_adhesion_pre[:,6] = temp3
+          else:
+            temp = copy.deepcopy(boundary_adhesion_pre[:,0])
+            boundary_adhesion_pre[:,0] = boundary_adhesion_pre[:,2]
+            boundary_adhesion_pre[:,2] = temp
 
       # scale image
       im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
@@ -424,7 +471,6 @@ class input_reader(imdb):
           delta[3] = np.log(box_h/mc.ANCHOR_BOX[aidx][3])
 
         if mc.EIGHT_POINT_REGRESSION:
-          assert mc.ENCODING_TYPE == 'normal', "asymmetric encoding is not supported with EIGHT_POINT_REGRESSION"
           EPSILON = 1e-8
           anchor_diagonal = (mc.ANCHOR_BOX[aidx][2]**2+mc.ANCHOR_BOX[aidx][3]**2)**(0.5)
           delta[4] = np.log((of1 + EPSILON)/anchor_diagonal)

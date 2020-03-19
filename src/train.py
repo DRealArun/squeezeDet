@@ -116,12 +116,14 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
   for i in range(len(images)):
     # draw ground truth
     if len(edge_adhesions) != 0:
-
+      if len(edge_adhesions[0]) > 4:
+        print_text =  [str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3]))+str(int(edge[4]))+str(int(edge[5]))+str(int(edge[6]))+str(int(edge[7])) for idx, edge in zip(labels[i], edge_adhesions[i])]
+      else:
+        print_text =  [str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3])) for idx, edge in zip(labels[i], edge_adhesions[i])]
       _draw_box(
           images[i], bboxes[i],
           #[mc.CLASS_NAMES[idx]+":"+str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3])) for idx, edge in zip(labels[i], edge_adhesions[i])],
-          [str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3])) for idx, edge in zip(labels[i], edge_adhesions[i])],
-          draw_masks=visualize_gt_masks, fill=True)
+          print_text, draw_masks=visualize_gt_masks, fill=True)
     else:
       _draw_box(
           images[i], bboxes[i],
@@ -281,7 +283,7 @@ def train():
             box_values.extend(bbox_per_batch[i][j])
             edge_adhesions.extend(edge_adhesions_per_batch[i][j])
             edge_indices.extend(
-                [[i, aidx_per_batch[i][j], k] for k in range(4)])
+                [[i, aidx_per_batch[i][j], k] for k in range(FLAGS.mask_parameterization)])
           else:
             num_discarded_labels += 1
 
@@ -323,7 +325,7 @@ def train():
               [1.0]*len(label_indices)),
           model.keep_prob: keep_prob_value,
           edge_scenarios: sparse_to_dense(
-              edge_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+              edge_indices, [mc.BATCH_SIZE, mc.ANCHORS, FLAGS.mask_parameterization],
               edge_adhesions).astype(np.bool, copy=False),
       }
 
