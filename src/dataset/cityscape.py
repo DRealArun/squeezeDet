@@ -75,14 +75,14 @@ class cityscape(input_reader):
     # for r in rrr:
     #   if r < 0:
     #     r = 0
-    #   if r > height:
-    #     r = height
+    #   if r > height-1:
+    #     r = height-1
     #   rr.append(r)
     # for c in ccc:
     #   if c < 0:
     #     c = 0
-    #   if c > width:
-    #     c = width
+    #   if c > width-1:
+    #     c = width-1
     #   cc.append(c)
     # rr = np.array(rr)
     # cc = np.array(cc)

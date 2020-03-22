@@ -116,7 +116,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
   for i in range(len(images)):
     # draw ground truth
     if len(edge_adhesions) != 0:
-      if len(edge_adhesions[0]) > 4:
+      if len(edge_adhesions[0][0]) > 4:
         print_text =  [str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3]))+str(int(edge[4]))+str(int(edge[5]))+str(int(edge[6]))+str(int(edge[7])) for idx, edge in zip(labels[i], edge_adhesions[i])]
       else:
         print_text =  [str(int(edge[0]))+str(int(edge[1]))+str(int(edge[2]))+str(int(edge[3])) for idx, edge in zip(labels[i], edge_adhesions[i])]
@@ -408,178 +408,185 @@ def train():
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
     run_options = tf.RunOptions(timeout_in_ms=60000)
 
-    # try: 
-    for step in xrange(glb_step, FLAGS.max_steps):
-      if coord.should_stop():
-        sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
-        coord.request_stop()
-        coord.join(threads)
-        break
+    try: 
+      for step in xrange(glb_step, FLAGS.max_steps):
+        if coord.should_stop():
+          sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+          coord.request_stop()
+          coord.join(threads)
+          break
 
-      start_time = time.time()
+        start_time = time.time()
 
-      if step % FLAGS.summary_step == 0:
-        feed_dict, image_per_batch, label_per_batch, bbox_per_batch, edge_ids = \
-            _load_data(load_to_placeholder=False)
-        op_list = [
-            model.train_op, model.loss, summary_op, model.det_boxes,
-            model.det_probs, model.det_class, model.conf_loss,
-            model.bbox_loss, model.class_loss, model.edge_adhesions,
-        ]
-        _, loss_value, summary_str, det_boxes, det_probs, det_class, \
-            conf_loss, bbox_loss, class_loss, edge_adhesions_pre_filtered = sess.run(
-                op_list, feed_dict=feed_dict)
+        if step % FLAGS.summary_step == 0:
+          feed_dict, image_per_batch, label_per_batch, bbox_per_batch, edge_ids = \
+              _load_data(load_to_placeholder=False)
+          op_list = [
+              model.train_op, model.loss, summary_op, model.det_boxes,
+              model.det_probs, model.det_class, model.conf_loss,
+              model.bbox_loss, model.class_loss, model.edge_adhesions,
+          ]
+          _, loss_value, summary_str, det_boxes, det_probs, det_class, \
+              conf_loss, bbox_loss, class_loss, edge_adhesions_pre_filtered = sess.run(
+                  op_list, feed_dict=feed_dict)
 
-        summary_writer.add_summary(summary_str, step)
-        # Visualize the training examples only if validation is not enabled
-        if not FLAGS.eval_valid:
-          visualize_gt_masks = False
-          visualize_pred_masks = False
-          if mc.EIGHT_POINT_REGRESSION:
-            visualize_gt_masks = True
-            visualize_pred_masks = True
+          summary_writer.add_summary(summary_str, step)
+          # Visualize the training examples only if validation is not enabled
+          if not FLAGS.eval_valid:
+            visualize_gt_masks = False
+            visualize_pred_masks = False
+            if mc.EIGHT_POINT_REGRESSION:
+              visualize_gt_masks = True
+              visualize_pred_masks = True
 
-          assert np.array_equal(feed_dict[model.edge_adhesions], edge_adhesions_pre_filtered), \
-              "Training Gt edge adhesion not matching edge adhesion tensor" 
-          edge_adhesions_per_batch = [[0]]*mc.BATCH_SIZE
-          for id_val in range(mc.BATCH_SIZE):
-            selected_ids = np.where(np.asarray(edge_ids)[:,0] == id_val)[0]
-            # print("Before",np.asarray(edge_ids)[selected_ids][:,1])
-            indexes_int = np.unique(np.asarray(edge_ids)[selected_ids][:,1], return_index=True)[1]
-            anchors_ids = np.asarray([np.asarray(edge_ids)[selected_ids][:,1][index] for index in sorted(indexes_int)])
-            # print("After",anchors_ids)
-            batch_id = [id_val]*len(anchors_ids)
-            edge_adhesions_per_batch[id_val] = edge_adhesions_pre_filtered[batch_id, anchors_ids]
+            assert np.array_equal(feed_dict[model.edge_adhesions], edge_adhesions_pre_filtered), \
+                "Training Gt edge adhesion not matching edge adhesion tensor" 
+            edge_adhesions_per_batch = [[0]]*mc.BATCH_SIZE
+            for id_val in range(mc.BATCH_SIZE):
+              selected_ids = np.where(np.asarray(edge_ids)[:,0] == id_val)[0]
+              # print("Before",np.asarray(edge_ids)[selected_ids][:,1])
+              indexes_int = np.unique(np.asarray(edge_ids)[selected_ids][:,1], return_index=True)[1]
+              anchors_ids = np.asarray([np.asarray(edge_ids)[selected_ids][:,1][index] for index in sorted(indexes_int)])
+              # print("After",anchors_ids)
+              batch_id = [id_val]*len(anchors_ids)
+              edge_adhesions_per_batch[id_val] = edge_adhesions_pre_filtered[batch_id, anchors_ids]
 
-          _viz_prediction_result(
-              model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-              det_class, det_probs, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch)
-          image_per_batch = bgr_to_rgb(image_per_batch)
-          viz_summary = sess.run(
-              model.viz_op, feed_dict={model.image_to_show: image_per_batch})
-          summary_writer.add_summary(viz_summary, step)
-        
-        print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_value, conf_loss, bbox_loss, class_loss))
-        with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
-          f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(step, loss_value, conf_loss, bbox_loss, class_loss))
-        f.close()
-        if FLAGS.eval_valid:
-          print ('\n!! Validation Set evaluation at step ', step, ' !!')
-          with open(os.path.join(FLAGS.train_dir, 'validation_metrics.txt'), 'a') as f:
-            f.write('\n!! Validation Set evaluation at step '+str(step)+' !!\n')
-            loss_list = []
-            batch_nr = 0
-            while True:
-              batch_nr += 1
-              if len(imdb_valid._image_idx) % mc.BATCH_SIZE > 0:
-                # if batch_size unevenly divides the number of samples.
-                # then number of batches is one more than the actual num of batches
-                num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE) + 1
-              else:
-                num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE)
-              if batch_nr > num_of_batches:
-                break
-              feed_dict_val, image_per_batch_val, label_per_batch_val, bbox_per_batch_val, edge_ids_val = \
-                  _load_data(load_to_placeholder=False, eval_valid=True)
-              op_list_val = [
-                  model.loss, model.conf_loss, model.bbox_loss, \
-                  model.class_loss, model.det_boxes, \
-                  model.det_probs, model.det_class,
-                  model.edge_adhesions,
-              ]
-              loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, det_boxes_val, \
-                det_probs_val, det_class_val, edge_adhesions_pre_filtered_val = sess.run(op_list_val, feed_dict=feed_dict_val)
-
-              if batch_nr == 1:
-                # Sample the first batch for visualization
-                visualize_gt_masks = False
-                visualize_pred_masks = False
-                if mc.EIGHT_POINT_REGRESSION:
-                  visualize_gt_masks = True
-                  visualize_pred_masks = True
-
-                assert np.array_equal(feed_dict_val[model.edge_adhesions], edge_adhesions_pre_filtered_val), \
-                        "Validation Gt edge adhesion not matching edge adhesion tensor"
-                edge_adhesions_per_batch_val = [[0]]*mc.BATCH_SIZE
-                for id_val in range(mc.BATCH_SIZE):
-                  selected_ids = np.where(np.asarray(edge_ids_val)[:,0] == id_val)[0]
-                  indexes_int = np.unique(np.asarray(edge_ids_val)[selected_ids][:,1], return_index=True)[1]
-                  anchors_ids = np.asarray([np.asarray(edge_ids_val)[selected_ids][:,1][index] for index in sorted(indexes_int)])
-                  batch_id = [id_val]*len(anchors_ids)
-                  edge_adhesions_per_batch_val[id_val] = edge_adhesions_pre_filtered_val[batch_id, anchors_ids]
-
-                _viz_prediction_result(
-                    model, image_per_batch_val, bbox_per_batch_val, label_per_batch_val, det_boxes_val,
-                    det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch_val)
-                image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
-
-              loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])
-              f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-                      format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val))
-            loss_list = np.asarray(loss_list)
-            loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3])]
-            loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3])]
-            print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
-            f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
-            f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
-              format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
-            # Visualize the validation examples
-            if len(image_per_batch_visualize) != 0:
-              viz_summary = sess.run(
-                  model.viz_op, feed_dict={model.image_to_show: image_per_batch_visualize})
-              summary_writer.add_summary(viz_summary, step)
+            _viz_prediction_result(
+                model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
+                det_class, det_probs, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch)
+            image_per_batch = bgr_to_rgb(image_per_batch)
+            viz_summary = sess.run(
+                model.viz_op, feed_dict={model.image_to_show: image_per_batch})
+            summary_writer.add_summary(viz_summary, step)
+          
+          print ('total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+                format(loss_value, conf_loss, bbox_loss, class_loss))
+          with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
+            f.write('step: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+                format(step, loss_value, conf_loss, bbox_loss, class_loss))
           f.close()
-        summary_writer.flush()
-      else:
-        if mc.NUM_THREAD > 0:
-          _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
-              [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
-               model.class_loss], options=run_options)
+          if FLAGS.eval_valid:
+            print ('\n!! Validation Set evaluation at step ', step, ' !!')
+            with open(os.path.join(FLAGS.train_dir, 'validation_metrics.txt'), 'a') as f:
+              f.write('\n!! Validation Set evaluation at step '+str(step)+' !!\n')
+              loss_list = []
+              batch_nr = 0
+              while True:
+                batch_nr += 1
+                if len(imdb_valid._image_idx) % mc.BATCH_SIZE > 0:
+                  # if batch_size unevenly divides the number of samples.
+                  # then number of batches is one more than the actual num of batches
+                  num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE) + 1
+                else:
+                  num_of_batches = (len(imdb_valid._image_idx) // mc.BATCH_SIZE)
+                if batch_nr > num_of_batches:
+                  break
+                feed_dict_val, image_per_batch_val, label_per_batch_val, bbox_per_batch_val, edge_ids_val = \
+                    _load_data(load_to_placeholder=False, eval_valid=True)
+                op_list_val = [
+                    model.loss, model.conf_loss, model.bbox_loss, \
+                    model.class_loss, model.det_boxes, \
+                    model.det_probs, model.det_class,
+                    model.edge_adhesions,
+                ]
+                loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val, det_boxes_val, \
+                  det_probs_val, det_class_val, edge_adhesions_pre_filtered_val = sess.run(op_list_val, feed_dict=feed_dict_val)
+
+                if batch_nr == 1:
+                  # Sample the first batch for visualization
+                  visualize_gt_masks = False
+                  visualize_pred_masks = False
+                  if mc.EIGHT_POINT_REGRESSION:
+                    visualize_gt_masks = True
+                    visualize_pred_masks = True
+
+                  assert np.array_equal(feed_dict_val[model.edge_adhesions], edge_adhesions_pre_filtered_val), \
+                          "Validation Gt edge adhesion not matching edge adhesion tensor"
+                  edge_adhesions_per_batch_val = [[0]]*mc.BATCH_SIZE
+                  for id_val in range(mc.BATCH_SIZE):
+                    selected_ids = np.where(np.asarray(edge_ids_val)[:,0] == id_val)[0]
+                    indexes_int = np.unique(np.asarray(edge_ids_val)[selected_ids][:,1], return_index=True)[1]
+                    anchors_ids = np.asarray([np.asarray(edge_ids_val)[selected_ids][:,1][index] for index in sorted(indexes_int)])
+                    batch_id = [id_val]*len(anchors_ids)
+                    edge_adhesions_per_batch_val[id_val] = edge_adhesions_pre_filtered_val[batch_id, anchors_ids]
+
+                  _viz_prediction_result(
+                      model, image_per_batch_val, bbox_per_batch_val, label_per_batch_val, det_boxes_val,
+                      det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch_val)
+                  image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
+
+                loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])
+                f.write('Batch: {}, total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+                        format(batch_nr, loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val))
+              loss_list = np.asarray(loss_list)
+              loss_means = [np.mean(loss_list[:,0]), np.mean(loss_list[:,1]), np.mean(loss_list[:,2]), np.mean(loss_list[:,3])]
+              loss_stds = [np.std(loss_list[:,0]), np.std(loss_list[:,1]), np.std(loss_list[:,2]), np.std(loss_list[:,3])]
+              print ('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+                format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
+              print ('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}'.\
+                format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+              f.write('Mean values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+                format(loss_means[0], loss_means[1], loss_means[2], loss_means[3]))
+              f.write('Standard Deviation values : total_loss: {}, conf_loss: {}, bbox_loss: {}, class_loss: {}\n'.\
+                format(loss_stds[0], loss_stds[1], loss_stds[2], loss_stds[3]))
+              # Visualize the validation examples
+              if len(image_per_batch_visualize) != 0:
+                viz_summary = sess.run(
+                    model.viz_op, feed_dict={model.image_to_show: image_per_batch_visualize})
+                summary_writer.add_summary(viz_summary, step)
+            f.close()
+          summary_writer.flush()
         else:
-          feed_dict, _, _, _, _ = _load_data(load_to_placeholder=False)
-          _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
-              [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
-               model.class_loss], feed_dict=feed_dict)
+          if mc.NUM_THREAD > 0:
+            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
+                [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
+                 model.class_loss], options=run_options)
+          else:
+            feed_dict, _, _, _, _ = _load_data(load_to_placeholder=False)
+            _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
+                [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
+                 model.class_loss], feed_dict=feed_dict)
 
-      duration = time.time() - start_time
+        duration = time.time() - start_time
 
-      assert not np.isnan(loss_value), \
-          'Model diverged. Total loss: {}, conf_loss: {}, bbox_loss: {}, ' \
-          'class_loss: {}'.format(loss_value, conf_loss, bbox_loss, class_loss)
+        assert not np.isnan(loss_value), \
+            'Model diverged. Total loss: {}, conf_loss: {}, bbox_loss: {}, ' \
+            'class_loss: {}'.format(loss_value, conf_loss, bbox_loss, class_loss)
 
-      if step % 10 == 0:
-        num_images_per_step = mc.BATCH_SIZE
-        images_per_sec = num_images_per_step / duration
-        sec_per_batch = float(duration)
-        format_str = ('%s: step %d, loss = %.2f (%.1f images/sec; %.3f '
-                      'sec/batch)')
-        print (format_str % (datetime.now(), step, loss_value,
-                             images_per_sec, sec_per_batch))
-        with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
-          f.write(format_str % (datetime.now(), step, loss_value,
-                             images_per_sec, sec_per_batch) + '\n')
-        f.close()
-        sys.stdout.flush()
+        if step % 10 == 0:
+          num_images_per_step = mc.BATCH_SIZE
+          images_per_sec = num_images_per_step / duration
+          sec_per_batch = float(duration)
+          format_str = ('%s: step %d, loss = %.2f (%.1f images/sec; %.3f '
+                        'sec/batch)')
+          print (format_str % (datetime.now(), step, loss_value,
+                               images_per_sec, sec_per_batch))
+          with open(os.path.join(FLAGS.train_dir, 'training_metrics.txt'), 'a') as f:
+            f.write(format_str % (datetime.now(), step, loss_value,
+                               images_per_sec, sec_per_batch) + '\n')
+          f.close()
+          sys.stdout.flush()
 
-      # Save the model checkpoint periodically.
-      if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
-        checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
-        print("Checkpointing at ", step)
-        saver.save(sess, checkpoint_path, global_step=step)
-    # except Exception, e:
-    #   coord.request_stop(e)
-    # finally:
-    #   coord.request_stop()
-    #   coord.join(threads)
-    sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
-    coord.request_stop()
-    coord.join(threads)
+        # Save the model checkpoint periodically.
+        if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
+          checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+          print("Checkpointing at ", step)
+          saver.save(sess, checkpoint_path, global_step=step)
+      sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+      coord.request_stop()
+      coord.join(threads)
+    except KeyboardInterrupt:
+      print("Keyboard interrupt caught ! Terminating..")
+      sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+      coord.request_stop()
+      coord.join(threads)
+      sys.exit(0)
+    except:
+      print("Unexpected error:", sys.exc_info()[0])
+      sess.run(model.FIFOQueue.close(cancel_pending_enqueues=True))
+      coord.request_stop()
+      coord.join(threads)
+      sys.exit(0)
 
 def main(argv=None):  # pylint: disable=unused-argument
   if not tf.gfile.Exists(FLAGS.train_dir):

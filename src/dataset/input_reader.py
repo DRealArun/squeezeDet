@@ -125,23 +125,23 @@ class input_reader(imdb):
     for r in rrr:
       if r < 0:
         r = 0
-      if r > h:
-        r = h
+      if r > h-1:
+        r = h-1
       rr.append(r)
     for c in ccc:
       if c < 0:
         c = 0
-      if c > w:
-        c = w
+      if c > w-1:
+        c = w-1
       cc.append(c)
     rr = np.array(rr)
     cc = np.array(cc)
     sum_values = cc + rr
     diff_values = cc - rr
     xmin = max(min(cc), 0)
-    xmax = min(max(cc), w)
+    xmax = min(max(cc), w-1)
     ymin = max(min(rr), 0)
-    ymax = min(max(rr), h)
+    ymax = min(max(rr), h-1)
     width       = xmax - xmin
     height      = ymax - ymin
     if width <= 0:
@@ -249,7 +249,7 @@ class input_reader(imdb):
       is_flip_performed = False
 
       assert np.all((gt_bbox_pre[:, 0] - (gt_bbox_pre[:, 2]/2.0)) >= 0) or \
-              np.all((gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2.0)) < orig_w), "Error in the bounding boxes befire augmentation"
+              np.all((gt_bbox_pre[:, 0] + (gt_bbox_pre[:, 2]/2.0)) < orig_w), "Error in the bounding boxes before augmentation"
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
@@ -396,7 +396,7 @@ class input_reader(imdb):
           mask_vector = self._get_8_point_mask(polygon, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH)
           center_x, center_y, width, height, of1, of2, of3, of4 = mask_vector
           if width == 0 or height == 0:
-            print("Error in width or height", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
+            print("Error in width or height so ignoring", width, height, gt_bbox_pre[k][2], gt_bbox_pre[k][3], center_x, center_y, gt_bbox_pre[k][0], gt_bbox_pre[k][1], idx)
             del label_per_batch[img_ct][k]
             continue
           assert not (of1 <= 0 or of2 <= 0 or of3 <= 0 or of4 <= 0), "Error Occured "+ str(of1) +" "+ str(of2)+" "+ str(of3)+" "+ str(of4)
