@@ -73,8 +73,20 @@ def decode_parameterization(mask_vector):
   assert m1 != 0 and m2 != 0, "Slopes are zero in _get_intersecting_point"
   ms = [-1/m1, -1/m2, -1/m2, -1/m1, -1/m1, -1/m2, -1/m2, -1/m1]
   intersecting_pts = []
-  for eq1, pt, vert_hor, m in zip(eq1s, points, vert_or_hors, ms):
+  for i, eq1, pt, vert_hor, m in zip(range(8), eq1s, points, vert_or_hors, ms):
       op_pt = _get_intersecting_point(vert_hor, eq1, pt, m)
+      x_val, y_val = op_pt
+      if vert_hor == 'vert':
+        if i == 0 or i == 5:
+          y_val = min(y_val, center_y)
+        elif i == 1 or i == 4:
+          y_val = max(y_val, center_y)
+      else:
+        if i == 2 or i == 7:
+          x_val = min(x_val, center_x)
+        elif i == 3 or i == 6:
+          x_val = max(x_val, center_x)
+      op_pt = (min(max(xmin, x_val), xmax), min(max(ymin, y_val), ymax))
       intersecting_pts.append(op_pt)
   return intersecting_pts
 

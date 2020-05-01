@@ -290,10 +290,16 @@ class ModelSkeleton:
             xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
                 [box_center_x, box_center_y, box_width, box_height])
 
-        self.det_boxes_uncropped = tf.transpose(
-              tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
-              (1, 2, 0), name='bbox_uncropped'
-        )
+        if self.mc.EIGHT_POINT_REGRESSION:
+          self.det_boxes_uncropped = tf.transpose(
+                tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
+                (1, 2, 0), name='bbox_uncropped'
+          )
+        else:
+          self.det_boxes_uncropped = tf.transpose(
+                tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+                (1, 2, 0), name='bbox_uncropped'
+          )
         # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
         # pixels. Same for y.
         xmins = tf.minimum(
@@ -550,19 +556,20 @@ class ModelSkeleton:
           conv, mean=mean, variance=var, offset=beta, scale=gamma,
           variance_epsilon=mc.BATCH_NORM_EPSILON, name='batch_norm')
 
-      self.model_size_counter.append(
-          (conv_param_name, (1+size*size*int(channels))*filters)
-      )
-      out_shape = conv.get_shape().as_list()
-      num_flops = \
-        (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
-      if relu:
-        num_flops += 2*filters*out_shape[1]*out_shape[2]
-      self.flop_counter.append((conv_param_name, num_flops))
+      if mc.IS_TRAINING:
+        self.model_size_counter.append(
+            (conv_param_name, (1+size*size*int(channels))*filters)
+        )
+        out_shape = conv.get_shape().as_list()
+        num_flops = \
+          (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
+        if relu:
+          num_flops += 2*filters*out_shape[1]*out_shape[2]
+        self.flop_counter.append((conv_param_name, num_flops))
 
-      self.activation_counter.append(
-          (conv_param_name, out_shape[1]*out_shape[2]*out_shape[3])
-      )
+        self.activation_counter.append(
+            (conv_param_name, out_shape[1]*out_shape[2]*out_shape[3])
+        )
 
       if relu:
         return tf.nn.relu(conv)
@@ -648,20 +655,20 @@ class ModelSkeleton:
       else:
         out = conv_bias
 
-      self.model_size_counter.append(
-          (layer_name, (1+size*size*int(channels))*filters)
-      )
-      out_shape = out.get_shape().as_list()
-      num_flops = \
-        (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
-      if relu:
-        num_flops += 2*filters*out_shape[1]*out_shape[2]
-      self.flop_counter.append((layer_name, num_flops))
+      if mc.IS_TRAINING:
+        self.model_size_counter.append(
+            (layer_name, (1+size*size*int(channels))*filters)
+        )
+        out_shape = out.get_shape().as_list()
+        num_flops = \
+          (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
+        if relu:
+          num_flops += 2*filters*out_shape[1]*out_shape[2]
+        self.flop_counter.append((layer_name, num_flops))
 
-      self.activation_counter.append(
-          (layer_name, out_shape[1]*out_shape[2]*out_shape[3])
-      )
-
+        self.activation_counter.append(
+            (layer_name, out_shape[1]*out_shape[2]*out_shape[3])
+        )
       return out
   
   def _pooling_layer(
@@ -677,14 +684,15 @@ class ModelSkeleton:
     Returns:
       A pooling layer operation.
     """
-
+    mc = self.mc
     with tf.variable_scope(layer_name) as scope:
       out =  tf.nn.max_pool(inputs, 
                             ksize=[1, size, size, 1], 
                             strides=[1, stride, stride, 1],
                             padding=padding)
-      activation_size = np.prod(out.get_shape().as_list()[1:])
-      self.activation_counter.append((layer_name, activation_size))
+      if mc.IS_TRAINING:
+        activation_size = np.prod(out.get_shape().as_list()[1:])
+        self.activation_counter.append((layer_name, activation_size))
       return out
 
   
