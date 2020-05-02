@@ -622,10 +622,10 @@ def image_demo_inference_graph(label_path, mask_parameterization_now, log_anchor
           gt_p[:,1] = gt_p[:,1]*y_scale
 
           xmin2, ymin2, xmax2, ymax2 = gt_bbox[u][0]-(gt_bbox[u][2]/2), gt_bbox[u][1]-(gt_bbox[u][3]/2), gt_bbox[u][0]+(gt_bbox[u][2]/2), gt_bbox[u][1]+(gt_bbox[u][3]/2)
-          assert abs(xmin1 - xmin2) <= 0.5, "GT Error in xmin "+str(xmin1)+" "+str(xmin2) 
-          assert abs(ymin1 - ymin2) <= 0.5, "GT Error in ymin "+str(ymin1)+" "+str(ymin2)
-          assert abs(xmax1 - xmax2) <= 0.5, "GT Error in xmax "+str(xmax1)+" "+str(xmax2)
-          assert abs(ymax1 - ymax2) <= 0.5, "GT Error in ymax "+str(ymax1)+" "+str(ymax2)
+          assert abs(xmin1 - xmin2) <= 1.0, "GT Error in xmin "+str(xmin1)+" "+str(xmin2) 
+          assert abs(ymin1 - ymin2) <= 1.0, "GT Error in ymin "+str(ymin1)+" "+str(ymin2)
+          assert abs(xmax1 - xmax2) <= 1.0, "GT Error in xmax "+str(xmax1)+" "+str(xmax2)
+          assert abs(ymax1 - ymax2) <= 1.0, "GT Error in ymax "+str(ymax1)+" "+str(ymax2)
 
           write_str = CLASS_NAMES[int(gt_labels[u])].lower() 
           for ele in gt_p:
@@ -656,10 +656,10 @@ def image_demo_inference_graph(label_path, mask_parameterization_now, log_anchor
           ymin1 = max(min(dt_p[:,1]), 0)
           xmax1 = min(max(dt_p[:,0]), 1024-1)
           ymax1 = min(max(dt_p[:,1]), 512-1)
-          assert abs(xmin1 - xmin2) <= 0.5, "DT Error in xmin "+str(xmin1)+" "+str(xmin2) 
-          assert abs(ymin1 - ymin2) <= 0.5, "DT Error in ymin "+str(ymin1)+" "+str(ymin2)
-          assert abs(xmax1 - xmax2) <= 0.5, "DT Error in xmax "+str(xmax1)+" "+str(xmax2)
-          assert abs(ymax1 - ymax2) <= 0.5, "DT Error in ymax "+str(ymax1)+" "+str(ymax2)
+          assert abs(xmin1 - xmin2) <= 1.0, "DT Error in xmin "+str(xmin1)+" "+str(xmin2) 
+          assert abs(ymin1 - ymin2) <= 1.0, "DT Error in ymin "+str(ymin1)+" "+str(ymin2)
+          assert abs(xmax1 - xmax2) <= 1.0, "DT Error in xmax "+str(xmax1)+" "+str(xmax2)
+          assert abs(ymax1 - ymax2) <= 1.0, "DT Error in ymax "+str(ymax1)+" "+str(ymax2)
 
           write_str = CLASS_NAMES[final_class[u]].lower()
           write_str += " "
@@ -737,7 +737,7 @@ def main(argv=None):
 
       if mask_param == 4 and frmt == 'coords':
         continue
-      log_dir = os.path.join(FLAGS.out_dir, str(c.split('\\')[-2])+"_"+frmt)
+      log_dir = os.path.join(FLAGS.out_dir, str(c.split('\\')[-3]), str(c.split('\\')[-2])+"_"+frmt)
       if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
