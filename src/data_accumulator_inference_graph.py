@@ -593,6 +593,12 @@ def image_demo_inference_graph(label_path, mask_parameterization_now, log_anchor
     #     (0, 0, 255), draw_masks=False, fill=False)
     # out_file_name = os.path.join(out_dir, i.split('\\')[-1][:-4]+".png")
     # cv2.imwrite(out_file_name, image_np)
+    print("FP:", run_time*1000, "IT:", int_time, "NMS:", nms_time, "PT:", postprocess_time)
+    with open(os.path.join(out_dir, 'runtime.txt'), 'a+') as f:
+      f.write(
+          '{:s} {:.6f} {:s} {:.6f} {:s} {:.6f} {:s} {:.6f}\n'.format("FP:", run_time*1000, "IT:", int_time, "NMS:", nms_time, "PT:", postprocess_time)
+      )
+    f.close
 
     total_time += postprocess_time
     total_times.append(total_time)
@@ -678,7 +684,7 @@ def image_demo_inference_graph(label_path, mask_parameterization_now, log_anchor
   print("NMS (softnms=", softnms, ") Time", np.mean(nms_times), "+/-", np.std(nms_times))
   print("Postprocessing Time", np.mean(post_times), "+/-", np.std(post_times))
   print("Total Time", np.mean(total_times), "+/-", np.std(total_times))
-  with open(os.path.join(out_dir, 'runtime.txt'), 'w') as f:
+  with open(os.path.join(out_dir, 'runtime.txt'), 'a') as f:
       f.write(
           '{:s} {:.6f} {:s} {:.6f}\n'.format("Forward Pass Time: ", np.mean(np.asarray(time_values)*1000), " +/- ", np.std(np.asarray(time_values)))
       )
