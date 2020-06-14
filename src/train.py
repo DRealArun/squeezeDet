@@ -59,7 +59,7 @@ tf.app.flags.DEFINE_float('warm_restart_lr', -1.0,
 tf.app.flags.DEFINE_string('encoding_type', 'normal',
                             """what type of encoding to use""")
 
-def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False):
+def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center', draw_masks=False, fill=False, fps_text='NA'):
   assert form == 'center' or form == 'diagonal', \
       'bounding box format not accepted: {}.'.format(form)
   bkp_im = copy.deepcopy(im)
@@ -90,9 +90,19 @@ def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center
         c = (np.random.choice(256), np.random.choice(256), np.random.choice(256))
       else:
         c = color
+    # FPS counter
+    if fps_text != 'NA':
+      fps_counter, per_frame_time = fps_text.split('/')
+      textSize, base = cv2.getTextSize(fps_counter, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1) # Get font size
+      cv2.rectangle(im, (10, 10), (1014, 40), (0, 0, 0), cv2.FILLED)
+      cv2.putText(im, fps_counter, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+      cv2.putText(im, per_frame_time, (750, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    # draw box
-    cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
+    labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+    label_ymin = max(ymin, labelSize[1] + 10)
+    cv2.rectangle(im, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), c, cv2.FILLED)
+    if not draw_masks:
+      cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
     # draw label
     y_lim = max(ymin-3, 0)
     font = cv2.FONT_HERSHEY_DUPLEX
@@ -102,12 +112,11 @@ def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center
         cv2.fillConvexPoly(color_mask, points, c)
         im[color_mask > 0] = bkp_im[color_mask > 0]
         im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
-      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
+      cv2.putText(im, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1) # Draw label text
       for p in range(len(points)):
-        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
+        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 1)
     else:
-      cv2.putText(im, label, (xmin, y_lim), font, 0.3, c, 1)
-
+      cv2.putText(im, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1) # Draw label text
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
                            batch_det_class, batch_det_prob, visualize_gt_masks=False, visualize_pred_masks=False, edge_adhesions=[]):
