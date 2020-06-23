@@ -23,13 +23,18 @@ tf.app.flags.DEFINE_string('encoding_type_now', 'normal',
 							"""what type of encoding to use""")
 tf.app.flags.DEFINE_integer('mask_parameterization_now', 4,
 							"""Bounding box is 4, octagonal mask is 8. other values not supported""")
+tf.app.flags.DEFINE_string('dataset_now', 'KITTI',
+                           """Currently only support KITTI and CITYSCAPE datasets.""")
 
-meta_path = FLAGS.train_dir+'/model.ckpt-200000'
+# meta_path = FLAGS.train_dir+'/model.ckpt-87000'
 output_node_names = ['conv12/bias_add']
 input_node_names = ['image_input']
 
 with tf.Graph().as_default():
-	mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization_now, FLAGS.log_anchors_now, False, FLAGS.encoding_type_now)
+	if FLAGS.dataset_now == 'CITYSCAPE':
+		mc = cityscape_squeezeDet_config(FLAGS.mask_parameterization_now, FLAGS.log_anchors_now, False, FLAGS.encoding_type_now)
+	else:
+		mc = kitti_squeezeDet_config(FLAGS.mask_parameterization_now, False, FLAGS.encoding_type_now)
 	mc.LOAD_PRETRAINED_MODEL = False
 	mc.IS_TRAINING = False
 	if FLAGS.net == 'squeezeDet':
@@ -42,12 +47,12 @@ with tf.Graph().as_default():
 
 	init = tf.global_variables_initializer()
 	sess.run(init)
-	if os.path.exists(FLAGS.train_dir):
-		saver.restore(sess, meta_path)
-	else:
-		ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-		# if ckpt and ckpt.model_checkpoint_path:
-		saver.restore(sess, ckpt.model_checkpoint_path)
+	# if os.path.exists(FLAGS.train_dir):
+	# 	saver.restore(sess, meta_path)
+	# else:
+	ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+	# if ckpt and ckpt.model_checkpoint_path:
+	saver.restore(sess, ckpt.model_checkpoint_path)
 	tf.train.write_graph(sess.graph.as_graph_def(), FLAGS.out_dir, 'tensorflowModel.pbtxt', as_text=True)
 	transforms = ['add_default_attributes',
 						'remove_nodes(op=Identity, op=CheckNumerics)',

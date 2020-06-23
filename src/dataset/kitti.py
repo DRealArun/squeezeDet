@@ -24,7 +24,7 @@ class kitti(imdb):
     self._image_idx = self._load_image_set_idx() 
     # a dict of image_idx -> [[cx, cy, w, h, cls_idx]]. x,y,w,h are not divided by
     # the image width and height
-    self._rois = self._load_kitti_annotation()
+    self._rois, self._boundary_adhesions = self._load_kitti_annotation()
 
     ## batch reader ##
     self._perm_idx = None
@@ -65,12 +65,14 @@ class kitti(imdb):
           return 4
 
     idx2annotation = {}
+    idx2boundaryadhesions = {}
     for index in self._image_idx:
       filename = os.path.join(self._label_path, index+'.txt')
       with open(filename, 'r') as f:
         lines = f.readlines()
       f.close()
       bboxes = []
+      boundaryadhesions = []
       for line in lines:
         obj = line.strip().split(' ')
         try:
@@ -92,10 +94,12 @@ class kitti(imdb):
                 .format(ymin, ymax, index)
         x, y, w, h = bbox_transform_inv([xmin, ymin, xmax, ymax])
         bboxes.append([x, y, w, h, cls])
+        boundaryadhesions.append([False]*4) # TODO implement boundary adhesion for KITTI
 
       idx2annotation[index] = bboxes
+      idx2boundaryadhesions[index] = boundaryadhesions
 
-    return idx2annotation
+    return idx2annotation, idx2boundaryadhesions
 
   def evaluate_detections(self, eval_dir, global_step, all_boxes):
     """Evaluate detection results.

@@ -11,7 +11,6 @@ def check_folders(path):
 	for f in ['train', 'val', 'test']:
 		assert os.path.exists(os.path.join(path, f)), "Folder "+str(f)+" does not exist !"
 
-
 def restructure_folders(src_path, dest_path, suffix, write_ids=False):
 	image_id_folder = os.path.join(dest_path, 'ImageSets')
 	if not os.path.exists(image_id_folder):

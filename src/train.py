@@ -102,7 +102,7 @@ def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center
     label_ymin = max(ymin, labelSize[1] + 10)
     cv2.rectangle(im, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), c, cv2.FILLED)
     if not draw_masks:
-      cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 1)
+      cv2.rectangle(im, (xmin, ymin), (xmax, ymax), c, 2)
     # draw label
     y_lim = max(ymin-3, 0)
     font = cv2.FONT_HERSHEY_DUPLEX
@@ -114,7 +114,7 @@ def _draw_box(im, box_list_pre, label_list, color=None, cdict=None, form='center
         im[color_mask > 0] = 0.5*im[color_mask > 0]  + 0.5*color_mask[color_mask > 0]
       cv2.putText(im, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1) # Draw label text
       for p in range(len(points)):
-        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 1)
+        cv2.line(im, tuple(points[p]), tuple(points[(p+1)%len(points)]), c, 2)
     else:
       cv2.putText(im, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1) # Draw label text
 
@@ -136,8 +136,8 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
     else:
       _draw_box(
           images[i], bboxes[i],
-          [mc.CLASS_NAMES[idx] for idx in labels[i]],
-          draw_masks=visualize_gt_masks, fill=True)
+          [mc.CLASS_NAMES[idx] for idx in labels[i]], (0, 255, 0),
+          draw_masks=visualize_gt_masks, fill=False)
 
     # draw prediction
     det_bbox, det_prob, det_class = model.filter_prediction(
@@ -154,7 +154,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         images[i], det_bbox,
         [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
             for idx, prob in zip(det_class, det_prob)],
-        (255, 255, 255), draw_masks=visualize_pred_masks, fill=False)
+        (0, 0, 255), draw_masks=visualize_pred_masks, fill=False)
 
 
 def train():
@@ -462,7 +462,7 @@ def train():
 
             _viz_prediction_result(
                 model, image_per_batch, bbox_per_batch, label_per_batch, det_boxes,
-                det_class, det_probs, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch)
+                det_class, det_probs, visualize_gt_masks, visualize_pred_masks)
             image_per_batch = bgr_to_rgb(image_per_batch)
             viz_summary = sess.run(
                 model.viz_op, feed_dict={model.image_to_show: image_per_batch})
@@ -521,7 +521,7 @@ def train():
 
                   _viz_prediction_result(
                       model, image_per_batch_val, bbox_per_batch_val, label_per_batch_val, det_boxes_val,
-                      det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks, edge_adhesions_per_batch_val)
+                      det_class_val, det_probs_val, visualize_gt_masks, visualize_pred_masks)
                   image_per_batch_visualize = bgr_to_rgb(image_per_batch_val)
 
                 loss_list.append([loss_value_val, conf_loss_val, bbox_loss_val, class_loss_val])

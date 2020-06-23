@@ -138,6 +138,7 @@ class imdb(object):
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
+    boundary_adhesions_per_batch = []
     if mc.DEBUG_MODE:
       avg_ious = 0.
       num_objects = 0.
@@ -154,6 +155,7 @@ class imdb(object):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
+      boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._boundary_adhesions[idx][:]])
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
@@ -198,6 +200,7 @@ class imdb(object):
       gt_bbox[:, 0::2] = gt_bbox[:, 0::2]*x_scale
       gt_bbox[:, 1::2] = gt_bbox[:, 1::2]*y_scale
       bbox_per_batch.append(gt_bbox)
+      boundary_adhesions_per_batch.append(boundary_adhesion_pre)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
@@ -253,7 +256,7 @@ class imdb(object):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, boundary_adhesions_per_batch
 
   def evaluate_detections(self):
     raise NotImplementedError

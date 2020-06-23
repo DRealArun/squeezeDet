@@ -145,9 +145,9 @@ class cityscape(input_reader):
               # Since we use only box to determine boundaryadhesion, it is common for ,
               # both 8 and 4 point
               if include_8_point_masks:
-                boundaryadhesion = [0]*8
+                boundaryadhesion = [False]*8
               else:
-                boundaryadhesion = [0]*4
+                boundaryadhesion = [False]*4
               # Not mutually exclusive
               if cx - (w/2) <= self.left_margin:
                 boundaryadhesion[0] = True
