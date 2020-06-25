@@ -1,7 +1,8 @@
 <table align="center"><tr><td align="center" width="9999">
 <img src="README/Cover.svg" align="center" alt="Project icon">
-
-This repository contains the code accompanying the work titled  **''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''**. If you find this work useful, please consider citing the [report](#bibtex).
+</td>
+<tr><td align="center" width="9999">
+This repository contains the code accompanying the work titled  <strong>''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''</strong>. If you find this work useful, please consider citing the [report](#bibtex).
 </td></tr></table>
 
 ### Table of Contents
@@ -80,8 +81,7 @@ We thank the authors for making the source code openly available. The main contr
 <table align="center"><tr>
 <td align="center" width="9999"> <strong><em>Figure 1:</em></strong> <em>Illustrations of different instance masks approximations</em> </td>
 </tr>
-</table>
-​	
+</table>	
 
    This involves code changes to,
 
@@ -151,10 +151,6 @@ tar -xzvf VGG16.tgz
     ```Shell
   cd $SQDT_ROOT/data
   
-  # Linux
-  python kitti_formatting.py --data_path=KITTI
-  
-  # Windows
   python kitti_formatting.py --data_path=KITTI
     ```
 
@@ -184,45 +180,41 @@ tar -xzvf VGG16.tgz
     ```Shell
   cd $SQDT_ROOT/data
   
-  # Linux
-  python cityscape_formatting.py --data_path=Cityscape
-  
-  # Windows
   python cityscape_formatting.py --data_path=Cityscape
     ```
 
   then you should get the `train.txt` and `val.txt` and `test.txt` under `$SQDT_ROOT/data/Cityscape/leftImg8bit/ImageSets`.  `train.txt` will contain indices to all the images in the training data.  `val.txt` will contain indices to all the images in the validation data. `test.txt` will contain indices to all the images in the test data. When the above step is finished, the structure of `$SQDT_ROOT/data/Cityscape/` should resemble:
 
-```shell
-$SQDT_ROOT/data/Cityscape/
-                    |-> leftImg8bit/
-				|-> train/
-				|     |-> image_2/***_***_***_leftImg8bit.png
-				|     |-> instance/***_***_***_gtFine_color.png
-				|	  |-> instance/***_***_***_gtFine_instanceIds.png
-				|     |-> instance/***_***_***_gtFine_labelIds.png
-				|     L-> instance/***_***_***_gtFine_polygons.json
-				| ...
-				|-> val/
-				|     |-> image_2/***_***_***_leftImg8bit.png
-				|     |-> instance/***_***_***_gtFine_color.png
-				|	  |-> instance/***_***_***_gtFine_instanceIds.png
-				|     |-> instance/***_***_***_gtFine_labelIds.png
-				|     L-> instance/***_***_***_gtFine_polygons.json
-				| ...
-				|-> test/
-				|     |-> image_2/***_***_***_leftImg8bit.png
-				|     |-> instance/***_***_***_gtFine_color.png
-				|	  |-> instance/***_***_***_gtFine_instanceIds.png
-				|     |-> instance/***_***_***_gtFine_labelIds.png
-				|     L-> instance/***_***_***_gtFine_polygons.json
-				| ...
-				L-> ImageSets/
-					|-> train.txt
-					|-> val.txt
-					L-> test.txt
+	```Shell
+	$SQDT_ROOT/data/Cityscape/
+			    |-> leftImg8bit/
+					|-> train/
+					|     |-> image_2/***_***_***_leftImg8bit.png
+					|     |-> instance/***_***_***_gtFine_color.png
+					|	  |-> instance/***_***_***_gtFine_instanceIds.png
+					|     |-> instance/***_***_***_gtFine_labelIds.png
+					|     L-> instance/***_***_***_gtFine_polygons.json
+					| ...
+					|-> val/
+					|     |-> image_2/***_***_***_leftImg8bit.png
+					|     |-> instance/***_***_***_gtFine_color.png
+					|	  |-> instance/***_***_***_gtFine_instanceIds.png
+					|     |-> instance/***_***_***_gtFine_labelIds.png
+					|     L-> instance/***_***_***_gtFine_polygons.json
+					| ...
+					|-> test/
+					|     |-> image_2/***_***_***_leftImg8bit.png
+					|     |-> instance/***_***_***_gtFine_color.png
+					|	  |-> instance/***_***_***_gtFine_instanceIds.png
+					|     |-> instance/***_***_***_gtFine_labelIds.png
+					|     L-> instance/***_***_***_gtFine_polygons.json
+					| ...
+					L-> ImageSets/
+						|-> train.txt
+						|-> val.txt
+						L-> test.txt
 
-```
+	```
 
 #### Training instructions
 
@@ -297,52 +289,52 @@ The following checkpoints trained on cityscape are made available.
 
 - Create a checkpoints folder `$SQDT_ROOT/data/Checkpoints`. 
 - Download the zip folder and then unzip it in the folder, The folder structure should resemble,
-```Shell
-Checkpoints
-    |-> checkpoint_folder_1/
-    |     	|-> model.ckpt-200000.data-00000-of-00001
-    |     	|-> model.ckpt-200000.index
-    |	  	L-> model.ckpt-200000
-    | ...
-    |-> checkpoint_folder_2/
-            |-> model.ckpt-200000.data-00000-of-00001
-            |-> model.ckpt-200000.index
-            L-> model.ckpt-200000
-```
+	```Shell
+	Checkpoints
+	    |-> checkpoint_folder_1/
+	    |     	|-> model.ckpt-200000.data-00000-of-00001
+	    |     	|-> model.ckpt-200000.index
+	    |	  	L-> model.ckpt-200000
+	    | ...
+	    |-> checkpoint_folder_2/
+		    |-> model.ckpt-200000.data-00000-of-00001
+		    |-> model.ckpt-200000.index
+		    L-> model.ckpt-200000
+	```
 
 - It is always a good practice to convert the checkpoints to a frozen inference graph and then use it for inference. For this reason a utility script is provided which reads the various available checkpoint folders and deduces the parameters to be used to generate the frozen inference graph from the folder names (automatically). Just run the following command to generate inference graphs for all the checkpoints in the `$SQDT_ROOT/data/Checkpoints` folder.
 
 
-```shell
-#Linux
-python ./src/inference_graph_for_all.py --train_dir=data/Checkpoints --out_dir=$OUT_DIR
+	```shell
+	#Linux
+	python ./src/inference_graph_for_all.py --train_dir=data/Checkpoints --out_dir=$OUT_DIR
 
-#Windows
-python ./src/inference_graph_for_all.py --train_dir=data\Checkpoints --out_dir=$OUT_DIR
-```
+	#Windows
+	python ./src/inference_graph_for_all.py --train_dir=data\Checkpoints --out_dir=$OUT_DIR
+	```
 
 Here, `$OUT_DIR` is the directory where your inference graph will be written.
 
 - Finally run the inference script to test the model.
-```shell
-# For the frozen inference graph corresponding to train_4_log_1
-python ./src/inference.py --inference_graph=$OUT_DIR\train_4_log_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
+	```shell
+	# For the frozen inference graph corresponding to train_4_log_1
+	python ./src/inference.py --inference_graph=$OUT_DIR\train_4_log_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
 
-# For the frozen inference graph corresponding to all_layers_LR_initial_1
-python ./src/inference.py --inference_graph=$OUT_DIR\all_layers_LR_initial_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
+	# For the frozen inference graph corresponding to all_layers_LR_initial_1
+	python ./src/inference.py --inference_graph=$OUT_DIR\all_layers_LR_initial_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
 
-# For the frozen inference graph corresponding to pt_4_lin_lin_anch_1
-python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_lin_lin_anch_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
+	# For the frozen inference graph corresponding to pt_4_lin_lin_anch_1
+	python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_lin_lin_anch_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
 
-# For the frozen inference graph corresponding to pt_8_lin_lin_anch_all_3
-python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_lin_lin_anch_all_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
+	# For the frozen inference graph corresponding to pt_8_lin_lin_anch_all_3
+	python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_lin_lin_anch_all_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
 
-# For the frozen inference graph corresponding to pt_4_log_log_anch_3
-python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_log_log_anch_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
+	# For the frozen inference graph corresponding to pt_4_log_log_anch_3
+	python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_log_log_anch_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
 
-# For the frozen inference graph corresponding to pt_8_log_log_anch_all_2
-python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_log_log_anch_all_2\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
-```
+	# For the frozen inference graph corresponding to pt_8_log_log_anch_all_2
+	python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_log_log_anch_all_2\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
+	```
 
 Here, 
 
@@ -357,7 +349,7 @@ Adding support for new datasets is quite simple.  To explain this, consider a du
 - File: `$SQDT_ROOT/src/config/config.py` at line number 30 add the following lines.
 
   ```python
-  elif cfg.DATASET == 'CITYSCAPE':
+  elif cfg.DATASET == 'DUMMY':
         cfg.CLASS_NAMES = tuple(sorted(('class_1', 'class_2')))
   ```
   
@@ -444,7 +436,7 @@ Pull requests to this repository are encouraged. The following guidelines apply.
 
 ### Maintainers
 
-Currently this repository is maintained by just me.  Would love to share the responsibility with interested developers. If interested please feel free to contact me on [LinkedIn](www.linkedin.com/in/arun-prabhu-0a237074) or by [email][gitecarp@gmail.com].
+Currently this repository is maintained by just me.  Would love to share the responsibility with interested developers. If interested please feel free to contact me on [LinkedIn](www.linkedin.com/in/arun-prabhu-0a237074) or by [email](gitecarp@gmail.com).
 
 ### Bibtex
 
