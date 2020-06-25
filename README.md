@@ -1,4 +1,8 @@
-![alt text](C:\tensorflow1\squeezeDet\README\Cover.svg)This repository contains the code accompanying the work titled  **''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''**. If you find this work useful, please consider citing the [report](#bibtex).
+<table align="center"><tr><td align="center" width="9999">
+<img src="README/Cover.svg" align="center" alt="Project icon">
+
+This repository contains the code accompanying the work titled  **''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''**. If you find this work useful, please consider citing the [report](#bibtex).
+</td></tr></table>
 
 ### Table of Contents
 
@@ -62,14 +66,22 @@ This work builds up on the work **_SqueezeDet:_Unified, Small, Low Power Fully C
 We thank the authors for making the source code openly available. The main contributions of this repository are as follows,
 
 1. ***SqueezeDetOcta*** was developed by augmenting the existing ***SqueezeDet*** object detection network to predict the parameters of irregular octagonal approximations of the instance masks. 
-
-   
-
-   <img src="README\center_offset_bbox.png" width="350"/> <img src="README\center_offset_mask.png" width="350"/> 
-
-   ​		**(a)** *Bounding box approximation*								**(b)** *Octagonal approximation*	
-
-   ​					***Figure 1:*** *Illustrations of different instance masks approximations*
+<center>
+<table><tr>
+<td align="center" width="9999"> <img src="README/center_offset_bbox.png" alt="Drawing" width="400"/></td>
+<td align="center" width="9999"> <img src="README/center_offset_mask.png" alt="Drawing" width="400"/></td>
+</tr>
+<tr>
+<td align="center" width="9999"> <strong>(a)</strong> <em>Bounding box approximation</em> </td>
+<td align="center" width="9999"> <strong>(a)</strong> <em>Octagonal approximation</em> </td>
+</tr>
+</table>
+</center>
+<table align="center"><tr>
+<td align="center" width="9999"> <strong><em>Figure 1:</em></strong> <em>Illustrations of different instance masks approximations</em> </td>
+</tr>
+</table>
+	
 
    This involves code changes to,
 
@@ -80,10 +92,11 @@ We thank the authors for making the source code openly available. The main contr
 2. Implementation to continue training from an existing checkpoint.
 
 3. This work uncovered the issues posed by boundary adhering object instances and why they warrant separate handling (refer the report for more information). 
-
-<p align="center">  <img src="README\BoundaryAdhesion.png" width="500"/> </p>
-
-  				***Figure 2:*** *Illustrations of boundary adhering object instances and occluded object instances*
+<table align="center"><tr><td align="center" width="9999">
+<img src="README/BoundaryAdhesion.png" align="center" alt="Project icon" width="500"/></td></tr>
+<tr><td align="center" width="9999">
+<strong><em>Figure 2:</em></strong> <em>Illustrations of boundary adhering object instances and occluded object instances.</em>
+</td></tr></table>
 
 Towards this end, a mechanism for automatic handling of these problematic object instances during network training was proposed. This involves,
 
@@ -93,13 +106,17 @@ Towards this end, a mechanism for automatic handling of these problematic object
 
   - Introduction of a modified L2 loss function for regression. This loss acts like a normal L2 loss for the object instances which are not in contact with the image boundaries. However, for the problematic image border adhering object instances, it enables only selective learning of the partial untainted parameters.
 
-    
-
 ### Qualitative Results
 
-
-
-<p align="center"><img src="./README/Stuttgart_bbox.gif" width="400" height="256" /><img src="./README/Stuttgart_octa.gif" width="400" height="256" /></p>
+<table align="center"><tr>
+<td align="center" width="9999"> <img src="./README/Stuttgart_bbox.gif" width="400" height="256" /></td>
+<td align="center" width="9999"> <img src="./README/Stuttgart_octa.gif" width="400" height="256" /></td>
+</tr>
+<tr>
+<td align="center" width="9999"> <strong>(a)</strong> <em>SqueezeDet</em> </td>
+<td align="center" width="9999"> <strong>(a)</strong> <em>SqueezeDetOcta</em> </td>
+</tr>
+</table>
 
 ### Training
 
@@ -176,37 +193,36 @@ tar -xzvf VGG16.tgz
 
   then you should get the `train.txt` and `val.txt` and `test.txt` under `$SQDT_ROOT/data/Cityscape/leftImg8bit/ImageSets`.  `train.txt` will contain indices to all the images in the training data.  `val.txt` will contain indices to all the images in the validation data. `test.txt` will contain indices to all the images in the test data. When the above step is finished, the structure of `$SQDT_ROOT/data/Cityscape/` should resemble:
 
-  ```Shell
+```shell
 $SQDT_ROOT/data/Cityscape/
                     |-> leftImg8bit/
-                    			|-> train/
-                    			|     |-> image_2/***_***_***_leftImg8bit.png
-                    			|     |-> instance/***_***_***_gtFine_color.png
-                    			|	  |-> instance/***_***_***_gtFine_instanceIds.png
-                    			|     |-> instance/***_***_***_gtFine_labelIds.png
-                    			|     L-> instance/***_***_***_gtFine_polygons.json
-                    			| ...
-                    			|-> val/
-                    			|     |-> image_2/***_***_***_leftImg8bit.png
-                    			|     |-> instance/***_***_***_gtFine_color.png
-                    			|	  |-> instance/***_***_***_gtFine_instanceIds.png
-                    			|     |-> instance/***_***_***_gtFine_labelIds.png
-                    			|     L-> instance/***_***_***_gtFine_polygons.json
-                    			| ...
-                    			|-> test/
-                    			|     |-> image_2/***_***_***_leftImg8bit.png
-                    			|     |-> instance/***_***_***_gtFine_color.png
-                    			|	  |-> instance/***_***_***_gtFine_instanceIds.png
-                    			|     |-> instance/***_***_***_gtFine_labelIds.png
-                    			|     L-> instance/***_***_***_gtFine_polygons.json
-                    			| ...
-                    			L-> ImageSets/
-                          			|-> train.txt
-                          			|-> val.txt
-                          			L-> test.txt
-  ```
+				|-> train/
+				|     |-> image_2/***_***_***_leftImg8bit.png
+				|     |-> instance/***_***_***_gtFine_color.png
+				|	  |-> instance/***_***_***_gtFine_instanceIds.png
+				|     |-> instance/***_***_***_gtFine_labelIds.png
+				|     L-> instance/***_***_***_gtFine_polygons.json
+				| ...
+				|-> val/
+				|     |-> image_2/***_***_***_leftImg8bit.png
+				|     |-> instance/***_***_***_gtFine_color.png
+				|	  |-> instance/***_***_***_gtFine_instanceIds.png
+				|     |-> instance/***_***_***_gtFine_labelIds.png
+				|     L-> instance/***_***_***_gtFine_polygons.json
+				| ...
+				|-> test/
+				|     |-> image_2/***_***_***_leftImg8bit.png
+				|     |-> instance/***_***_***_gtFine_color.png
+				|	  |-> instance/***_***_***_gtFine_instanceIds.png
+				|     |-> instance/***_***_***_gtFine_labelIds.png
+				|     L-> instance/***_***_***_gtFine_polygons.json
+				| ...
+				L-> ImageSets/
+					|-> train.txt
+					|-> val.txt
+					L-> test.txt
 
-
+ ```
 
 #### Training instructions
 
