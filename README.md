@@ -434,7 +434,7 @@ Pull requests to this repository are encouraged. The following guidelines apply.
 
 ### Maintainers
 
-Currently this repository is maintained by just me.  Would love to share the responsibility with interested developers. If interested please feel free to contact me on [LinkedIn](www.linkedin.com/in/arun-prabhu-0a237074) or by [email](gitecarp@gmail.com).
+Currently this repository is maintained by just me.  Would love to share the responsibility with interested developers. If interested please feel free to contact me on [LinkedIn](https://www.linkedin.com/in/arun-prabhu-0a237074) or by email [arun.prabhu@smail.inf.h-brs.de].
 
 ### Bibtex
 
