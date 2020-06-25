@@ -2,7 +2,7 @@
 <img src="README/Cover.svg" align="center" alt="Project icon">
 </td>
 <tr><td align="center" width="9999">
-This repository contains the code accompanying the work titled  <strong>''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''</strong>. If you find this work useful, please consider citing the [report](#bibtex).
+This repository contains the code accompanying the work titled  <strong>''An investigation of regression as an avenue to find precision-runtime trade-off for object segmentation''</strong>. If you find this work useful, please consider citing it.
 </td></tr></table>
 
 ### Table of Contents
