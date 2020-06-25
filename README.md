@@ -58,7 +58,6 @@ This installation assumes Anaconda environment is already installed. If not plea
     conda install -c anaconda scipy
     # optional
     conda install -c conda-forge jupyterlab
-    conda install -c anaconda protobuf
     ```
 ### Main Contributions
 
@@ -85,7 +84,7 @@ We thank the authors for making the source code openly available. The main contr
 
    This involves code changes to,
 
-   1. load instance masks. (Cityscape dataset is chosen for this. But the code can easily be extended for other datasets as described in the [Custom dataset support](#datasetsupport) section.)
+   1. load instance masks. (Cityscape dataset is chosen for this. But the code can easily be extended for other datasets as described in the [Custom dataset support](#custom-dataset-support) section.)
    2. approximate the instance masks using irregular octagonal parameterization.
    3. encode these parameters to generate the ground-truth which can be used to train the network.
 
@@ -120,7 +119,7 @@ Towards this end, a mechanism for automatic handling of these problematic object
 
 ### Training
 
-Currently the repository supports two autonomous driving datasets KITTI and Cityscape but can be extended to custom datasets using the instructions provided in the [Custom dataset support](#datasetsupport).
+Currently the repository supports two autonomous driving datasets KITTI and Cityscape but can be extended to custom datasets using the instructions provided in the [Custom dataset support](#custom-dataset-support).
 Before training, download the CNN model pretrained for ImageNet classification.
 
   ```Shell
@@ -270,7 +269,7 @@ Monitor the training process using tensorboard using the command:
 ```Shell
 tensorboard --logdir=$LOG_DIR
 ```
-Here, `$LOG_DIR` is the directory where your logs are dumped, which should be the same as `-train_dir`. 
+Here, `$LOG_DIR` is the directory where your logs are dumped, which should be the same as `--train_dir`. 
 
 ### Inference
 
@@ -308,7 +307,7 @@ The following checkpoints trained on cityscape are made available.
 	```shell
 	#Linux
 	python ./src/inference_graph_for_all.py --train_dir=data/Checkpoints --out_dir=$OUT_DIR
-
+	
 	#Windows
 	python ./src/inference_graph_for_all.py --train_dir=data\Checkpoints --out_dir=$OUT_DIR
 	```
@@ -318,29 +317,28 @@ Here, `$OUT_DIR` is the directory where your inference graph will be written.
 - Finally run the inference script to test the model.
 	```shell
 	# For the frozen inference graph corresponding to train_4_log_1
-	python ./src/inference.py --inference_graph=$OUT_DIR\train_4_log_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/train_4_log_1/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
 
 	# For the frozen inference graph corresponding to all_layers_LR_initial_1
-	python ./src/inference.py --inference_graph=$OUT_DIR\all_layers_LR_initial_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/all_layers_LR_initial_1/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=normal --dataset_inf=CITYSCAPE
 
 	# For the frozen inference graph corresponding to pt_4_lin_lin_anch_1
-	python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_lin_lin_anch_1\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/pt_4_lin_lin_anch_1/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
 
 	# For the frozen inference graph corresponding to pt_8_lin_lin_anch_all_3
-	python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_lin_lin_anch_all_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/pt_8_lin_lin_anch_all_3/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --encoding_type_inf=asymmetric_linear --dataset_inf=CITYSCAPE
 
 	# For the frozen inference graph corresponding to pt_4_log_log_anch_3
-	python ./src/inference.py --inference_graph=$OUT_DIR\pt_4_log_log_anch_3\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/pt_4_log_log_anch_3/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=4 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
 
 	# For the frozen inference graph corresponding to pt_8_log_log_anch_all_2
-	python ./src/inference.py --inference_graph=$OUT_DIR\pt_8_log_log_anch_all_2\frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
+	python ./src/inference.py --inference_graph=$OUT_DIR/pt_8_log_log_anch_all_2/frozen_inference_graph.pb --input_path=$INP_DIR --out_dir=$RES_DIR --demo_net=squeezeDet --mask_parameterization_inf=8 --log_anchors_inf --encoding_type_inf=asymmetric_log --dataset_inf=CITYSCAPE
 	```
 
 Here, 
 
 1. `$INP_DIR` is an OS specific path to an image folder (`./image_dir/00000*.png`) or an video file (`./video_dir/input_1.mp4`).
 2. `$RES_DIR` is an OS specific path to an directory into which the processed images/frames will be written.
-3. `$INF_GRAPH` is an OS specific path to the frozen inference graph.
 
 ### Custom dataset support
 
@@ -439,6 +437,8 @@ Pull requests to this repository are encouraged. The following guidelines apply.
 Currently this repository is maintained by just me.  Would love to share the responsibility with interested developers. If interested please feel free to contact me on [LinkedIn](www.linkedin.com/in/arun-prabhu-0a237074) or by [email](gitecarp@gmail.com).
 
 ### Bibtex
+
+The report is under review and will be made available soon.
 
 ```latex
 @MastersThesis{2020Prabhu,

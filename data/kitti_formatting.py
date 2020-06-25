@@ -1,5 +1,6 @@
 import os
 import glob
+import platform
 import argparse
 import numpy as np
 
@@ -10,6 +11,11 @@ args = parser.parse_args()
 
 assert args.data_path != None, "Data path not provided !"
 assert os.path.exists(args.data_path), "Invalid Data path provided !"
+
+if platform.system() == 'Linux':
+	separator = '/'
+else:
+	separator = '\\'
 
 image_set_dir = os.path.join(args.data_path, 'ImageSets')
 if not os.path.exists(image_set_dir):
@@ -22,7 +28,7 @@ training_data_dir = os.path.join(args.data_path, 'training', 'image_2', '*.png')
 
 with open(trainval_file, 'w') as f:
     for i in glob.iglob(training_data_dir):
-        f.write(i.split('\\')[-1].split('.png')[0]+"\n") 
+        f.write(i.split(separator)[-1].split('.png')[0]+"\n") 
 
 idx = []
 with open(trainval_file) as f:

@@ -5,6 +5,7 @@
 import tensorflow as tf
 from tensorflow.python.tools import freeze_graph
 import os
+import platform
 from nets import *
 from config import *
 from tensorflow.python.tools.inspect_checkpoint import print_tensors_in_checkpoint_file
@@ -23,12 +24,17 @@ output_node_names = ['conv12/bias_add']
 input_node_names = ['image_input']
 
 checkpoints = []
+if platform.system() == 'Linux':
+	separator = '/'
+else:
+	separator = '\\'
+
 if 'model.ckpt' in FLAGS.train_dir:
 	checkpoints.append(FLAGS.train_dir)
 else:
 	checkpoints.extend([os.path.join(x[0], 'model.ckpt-200000') for x in os.walk(FLAGS.train_dir) if 'inference' not in x[0] and 'model.ckpt-200000.index' in x[2]])
 for i, c in enumerate(checkpoints):
-	print("\nProcessing:", c.split('\\')[-2])
+	print("\nProcessing:", c.split(separator)[-2])
 	if '4' in c and '-4' not in c:
 		print("mask_parameters_now:", 4)
 		mask_param = 4
@@ -57,7 +63,7 @@ for i, c in enumerate(checkpoints):
 
 	if not tf.gfile.Exists(FLAGS.out_dir):
 		tf.gfile.MakeDirs(FLAGS.out_dir)
-	log_dir = os.path.join(FLAGS.out_dir, str(c.split('\\')[-2]))
+	log_dir = os.path.join(FLAGS.out_dir, str(c.split(separator)[-2]))
 	if not tf.gfile.Exists(log_dir):
 		tf.gfile.MakeDirs(log_dir)
 

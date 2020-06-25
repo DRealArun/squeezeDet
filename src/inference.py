@@ -48,7 +48,7 @@ tf.app.flags.DEFINE_boolean('write_to_disk', False, """Write the segmentations t
 tf.app.flags.DEFINE_string('dataset_inf', 'KITTI',
                            """Currently only support KITTI and CITYSCAPE datasets.""")
 
-def set_anchors(H, W, log_anchors=False):
+def set_anchors_cityscape(H, W, log_anchors=False):
   B = 9
   if log_anchors:
       print("Using Log domain extracted anchors")
@@ -68,6 +68,42 @@ def set_anchors(H, W, log_anchors=False):
                [94.15, 203.37], [257.57, 187.70], [196.69, 312.63]])] * H * W,
           (H, W, B, 2)
       )
+  center_x = np.reshape(
+    np.transpose(
+        np.reshape(
+            np.array([np.arange(1, W+1)*16]*H*B), 
+            (B, H, W)
+        ),
+        (1, 2, 0)
+    ),
+    (H, W, B, 1)
+  )
+  center_y = np.reshape(
+    np.transpose(
+        np.reshape(
+            np.array([np.arange(1, H+1)*16]*W*B),
+            (B, W, H)
+        ),
+        (2, 1, 0)
+    ),
+    (H, W, B, 1)
+  )
+  anchors = np.reshape(
+    np.concatenate((center_x, center_y, anchor_shapes), axis=3),
+    (-1, 4)
+  )
+
+  return anchors
+
+def set_anchors_kitti(H, W):
+  B = 9
+  anchor_shapes = np.reshape(
+      [np.array(
+          [[  36.,  37.], [ 366., 174.], [ 115.,  59.],
+           [ 162.,  87.], [  38.,  90.], [ 258., 173.],
+           [ 224., 108.], [  78., 170.], [  72.,  43.]])] * H * W,
+      (H, W, B, 2)
+  )
   center_x = np.reshape(
     np.transpose(
         np.reshape(
@@ -228,12 +264,13 @@ def filter_prediction(boxes, probs, cls_idx, PROB_THRESH, softnms=True):
     
 def interpret_output(output_volume, mask_parameterization=4, log_anchors=False, imgSize=(1024,512), encoding_type_now='normal'):
   ANCHOR_PER_GRID = 9
+  BATCH_SIZE, H, W, nc = np.shape(output_volume)
   if FLAGS.dataset_inf == 'CITYSCAPE':
     NUM_CLASSES = 7
+    ANCHOR_BOX = set_anchors_cityscape(H, W, log_anchors)
   else:
     NUM_CLASSES = 3
-  BATCH_SIZE, H, W, nc = np.shape(output_volume)
-  ANCHOR_BOX = set_anchors(H, W, log_anchors)
+    ANCHOR_BOX = set_anchors_kitti(H, W)
   ANCHORS = len(ANCHOR_BOX)
   num_class_probs = ANCHOR_PER_GRID*NUM_CLASSES
   pred_class_probs = np.reshape(
@@ -464,22 +501,6 @@ def video_demo_inference_graph(mask_parameterization_now, log_anchors_now, encod
     if (cap.isOpened()== False): 
       print("Error opening video stream or file")
 
-  # if mask_parameterization_now == 8:
-  #   if '.png' in FLAGS.input_path:
-  #     FPS_recording = 8
-  #     vid_name = 'video_octa_img_seq.avi'
-  #   else:
-  #     FPS_recording = 10
-  #     vid_name = 'video_octa_vid_seq.avi'
-  # else:
-  #   if '.png' in FLAGS.input_path:
-  #     FPS_recording = 8
-  #     vid_name = 'video_bbox_img_seq.avi'
-  #   else:
-  #     FPS_recording = 10
-  #     vid_name = 'video_bbox_vid_seq.avi'
-  # out = cv2.VideoWriter(os.path.join(FLAGS.out_dir, vid_name), -1, FPS_recording, (640,480))
-
   with detection_graph.as_default():
     od_graph_def = tf.GraphDef()
     with tf.gfile.GFile(checkpoint_path, 'rb') as fid:
@@ -516,8 +537,6 @@ def video_demo_inference_graph(mask_parameterization_now, log_anchors_now, encod
             [CLASS_NAMES[idx]+': (%.2f)'% prob \
                 for idx, prob in zip(final_class, final_probs)],
             (0, 0, 255), draw_masks=(mask_parameterization_now == 8), fill=False, cdict=_cdict, fps_text=fps_text)
-          # out.write(cv2.resize(image_np_orig, (640,480), interpolation = cv2.INTER_AREA))
-          # out.write(image_np_orig)
           cv2.imshow('Frame',image_np_orig)
           if FLAGS.write_to_disk:
             out_file_name = os.path.join(FLAGS.out_dir, image_path.split('\\')[-1][:-4]+".png")
@@ -544,9 +563,6 @@ def video_demo_inference_graph(mask_parameterization_now, log_anchors_now, encod
               [CLASS_NAMES[idx]+': (%.2f)'% prob \
                   for idx, prob in zip(final_class, final_probs)],
               (0, 0, 255), draw_masks=(mask_parameterization_now == 8), fill=False, cdict=_cdict, fps_text=fps_text)
-
-            # out.write(cv2.resize(image_np_orig, (640,480), interpolation = cv2.INTER_AREA))
-            # out.write(image_np_orig)
             cv2.imshow('Frame',image_np_orig)
             frame_cnt +=1
             if FLAGS.write_to_disk:
@@ -556,8 +572,7 @@ def video_demo_inference_graph(mask_parameterization_now, log_anchors_now, encod
               break
           else:
             break
-  
-  # out.release()
+
   if not '.png' in FLAGS.input_path: 
     cap.release()
     cv2.destroyAllWindows()
