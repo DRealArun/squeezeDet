@@ -7,16 +7,16 @@ This repository contains the code accompanying the work titled  **''An investiga
 ### Table of Contents
 
 - [Installation](#installation)
-- [Main contributions](#contributions)
-- [Qualitative Results](#results)
+- [Main contributions](#main-contributions)
+- [Qualitative Results](#qualitative-results)
 - [Training](#training)
-	- [KITTI specific data formatting](#kittispecifictdataformatting)
-	- [Cityscape specific data formatting](#cityscapespecificdataformatting)
-	- [Training instructions][#traininstructions]
-- [Inference](#infer)  	
-- [Custom dataset support](#datasetsupport)
-- [Contributing guideline](#thirdparty)
-- [Maintainers](#team)
+	- [KITTI specific data formatting](#kitti-specific-data-formatting)
+	- [Cityscape specific data formatting](#cityscape-specific-data-formatting)
+	- [Training instructions][#training-instructions]
+- [Inference](#inference)  	
+- [Custom dataset support](#custom-dataset-support)
+- [Contributing guideline](#contributing-guideline)
+- [Maintainers](#maintainers)
 - [Bibtex](#bibtex)
 
 ### Installation
