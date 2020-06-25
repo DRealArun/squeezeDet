@@ -8,14 +8,15 @@ import numpy as np
 from easydict import EasyDict as edict
 
 def base_model_config(dataset='PASCAL_VOC'):
-  assert dataset.upper()=='PASCAL_VOC' or dataset.upper()=='KITTI', \
-      'Currently only support PASCAL_VOC or KITTI dataset'
+  assert dataset.upper()=='PASCAL_VOC' or dataset.upper()=='KITTI' or dataset.upper()=='CITYSCAPE', \
+      'Currently only support PASCAL_VOC, KITTI or CITYSCAPE datasets'
 
   cfg = edict()
 
   # Dataset used to train/val/test model. Now support PASCAL_VOC or KITTI
   cfg.DATASET = dataset.upper()
 
+  cfg.EIGHT_POINT_REGRESSION = False # Bounding box
   if cfg.DATASET == 'PASCAL_VOC':
     # object categories to classify
     cfg.CLASS_NAMES = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus',
@@ -23,10 +24,15 @@ def base_model_config(dataset='PASCAL_VOC'):
                        'horse', 'motorbike', 'person', 'pottedplant', 'sheep',
                        'sofa', 'train', 'tvmonitor')
   elif cfg.DATASET == 'KITTI':
-    cfg.CLASS_NAMES = ('car', 'pedestrian', 'cyclist')
+    cfg.CLASS_NAMES = tuple(sorted(('car', 'pedestrian', 'cyclist')))
+  elif cfg.DATASET == 'CITYSCAPE':
+    cfg.CLASS_NAMES = tuple(sorted(('person', 'rider', 'car', 'truck', 'bus', 'motorcycle', 'bicycle')))
 
   # number of categories to classify
-  cfg.CLASSES = len(cfg.CLASS_NAMES)    
+  cfg.CLASSES = len(cfg.CLASS_NAMES)
+
+  # drop-out probability
+  cfg.DROP_OUT_PROB = 0.5    
 
   # ROI pooling output width
   cfg.GRID_POOL_WIDTH = 7

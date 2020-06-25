@@ -6,8 +6,9 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_vgg16_config():
+def kitti_vgg16_config(mask_parameterization, tune_only_last_layer, encoding_type):
   """Specify the parameters to tune below."""
+  assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
 
   mc.IMAGE_WIDTH           = 1242
@@ -40,10 +41,14 @@ def kitti_vgg16_config():
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
 
+  mc.TRAIN_ONLY_LAST_LAYER = False
+  if tune_only_last_layer:
+    mc.TRAIN_ONLY_LAST_LAYER = True
+  mc.ENCODING_TYPE = encoding_type
   return mc
 
 def set_anchors(mc):
-  H, W, B = 24, 78, 9
+  H, W, B = 22, 76, 9
   anchor_shapes = np.reshape(
       [np.array(
           [[  36.,  37.], [ 366., 174.], [ 115.,  59.],

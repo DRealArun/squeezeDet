@@ -32,6 +32,10 @@ class VGG16ConvDet(ModelSkeleton):
     """Build the VGG-16 model."""
 
     mc = self.mc
+    freeze_weight = mc.TRAIN_ONLY_LAST_LAYER
+    num_mask_params = 4
+    if mc.EIGHT_POINT_REGRESSION:
+      num_mask_params = 8
     if mc.LOAD_PRETRAINED_MODEL:
       assert tf.gfile.Exists(mc.PRETRAINED_MODEL_PATH), \
           'Cannot find pretrained model at the given path:' \
@@ -48,7 +52,7 @@ class VGG16ConvDet(ModelSkeleton):
 
     with tf.variable_scope('conv2') as scope:
       conv2_1 = self._conv_layer(
-          'conv2_1', pool1, filters=128, size=3, stride=1, freeze=True)
+          'conv2_1', pool1, filters=128, size=3, stride=1, freeze=True, padding='VALID')
       conv2_2 = self._conv_layer(
           'conv2_2', conv2_1, filters=128, size=3, stride=1, freeze=True)
       pool2 = self._pooling_layer(
@@ -56,35 +60,35 @@ class VGG16ConvDet(ModelSkeleton):
 
     with tf.variable_scope('conv3') as scope:
       conv3_1 = self._conv_layer(
-          'conv3_1', pool2, filters=256, size=3, stride=1)
+          'conv3_1', pool2, filters=256, size=3, stride=1, padding='VALID', freeze=freeze_weight)
       conv3_2 = self._conv_layer(
-          'conv3_2', conv3_1, filters=256, size=3, stride=1)
+          'conv3_2', conv3_1, filters=256, size=3, stride=1, freeze=freeze_weight)
       conv3_3 = self._conv_layer(
-          'conv3_3', conv3_2, filters=256, size=3, stride=1)
+          'conv3_3', conv3_2, filters=256, size=3, stride=1, freeze=freeze_weight)
       pool3 = self._pooling_layer(
           'pool3', conv3_3, size=2, stride=2)
 
     with tf.variable_scope('conv4') as scope:
       conv4_1 = self._conv_layer(
-          'conv4_1', pool3, filters=512, size=3, stride=1)
+          'conv4_1', pool3, filters=512, size=3, stride=1, padding='VALID', freeze=freeze_weight)
       conv4_2 = self._conv_layer(
-          'conv4_2', conv4_1, filters=512, size=3, stride=1)
+          'conv4_2', conv4_1, filters=512, size=3, stride=1, freeze=freeze_weight)
       conv4_3 = self._conv_layer(
-          'conv4_3', conv4_2, filters=512, size=3, stride=1)
+          'conv4_3', conv4_2, filters=512, size=3, stride=1, freeze=freeze_weight)
       pool4 = self._pooling_layer(
           'pool4', conv4_3, size=2, stride=2)
 
     with tf.variable_scope('conv5') as scope:
       conv5_1 = self._conv_layer(
-          'conv5_1', pool4, filters=512, size=3, stride=1)
+          'conv5_1', pool4, filters=512, size=3, stride=1, freeze=freeze_weight)
       conv5_2 = self._conv_layer(
-          'conv5_2', conv5_1, filters=512, size=3, stride=1)
+          'conv5_2', conv5_1, filters=512, size=3, stride=1, freeze=freeze_weight)
       conv5_3 = self._conv_layer(
-          'conv5_3', conv5_2, filters=512, size=3, stride=1)
+          'conv5_3', conv5_2, filters=512, size=3, stride=1, freeze=freeze_weight)
 
     dropout5 = tf.nn.dropout(conv5_3, self.keep_prob, name='drop6')
 
-    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + 4)
+    num_output = mc.ANCHOR_PER_GRID * (mc.CLASSES + 1 + num_mask_params)
     self.preds = self._conv_layer(
         'conv6', dropout5, filters=num_output, size=3, stride=1,
         padding='SAME', xavier=False, relu=False, stddev=0.0001)

@@ -8,6 +8,7 @@ import shutil
 
 from PIL import Image, ImageFont, ImageDraw
 import cv2
+import copy
 import numpy as np
 from utils.util import iou, batch_iou
 
@@ -21,7 +22,7 @@ class imdb(object):
     self._image_idx = []
     self._data_root_path = []
     self._rois = {}
-    self.mc = mc
+    self.mc = copy.deepcopy(mc)
 
     # batch reader
     self._perm_idx = None
@@ -96,10 +97,11 @@ class imdb(object):
 
     return images, scales
 
-  def read_batch(self, shuffle=True):
+  def read_batch(self, shuffle=True, wrap_around=True):
     """Read a batch of image and bounding box annotations.
     Args:
       shuffle: whether or not to shuffle the dataset
+      wrap_around: cyclic data extraction
     Returns:
       image_per_batch: images. Shape: batch_size x width x height x [b, g, r]
       label_per_batch: labels. Shape: batch_size x object_num
@@ -121,7 +123,12 @@ class imdb(object):
       if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
         batch_idx = self._image_idx[self._cur_idx:] \
             + self._image_idx[:self._cur_idx + mc.BATCH_SIZE-len(self._image_idx)]
-        self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        if wrap_around:
+          self._cur_idx += mc.BATCH_SIZE - len(self._image_idx)
+        else:
+          # Restart the counter if no-wrap-around is enabled
+          # This ensures all the validation examples are evaluated
+          self._cur_idx = 0
       else:
         batch_idx = self._image_idx[self._cur_idx:self._cur_idx+mc.BATCH_SIZE]
         self._cur_idx += mc.BATCH_SIZE
@@ -131,6 +138,7 @@ class imdb(object):
     bbox_per_batch  = []
     delta_per_batch = []
     aidx_per_batch  = []
+    boundary_adhesions_per_batch = []
     if mc.DEBUG_MODE:
       avg_ious = 0.
       num_objects = 0.
@@ -147,6 +155,7 @@ class imdb(object):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
+      boundary_adhesion_pre = np.array([[b[0], b[1], b[2], b[3]] for b in self._boundary_adhesions[idx][:]])
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
@@ -191,6 +200,7 @@ class imdb(object):
       gt_bbox[:, 0::2] = gt_bbox[:, 0::2]*x_scale
       gt_bbox[:, 1::2] = gt_bbox[:, 1::2]*y_scale
       bbox_per_batch.append(gt_bbox)
+      boundary_adhesions_per_batch.append(boundary_adhesion_pre)
 
       aidx_per_image, delta_per_image = [], []
       aidx_set = set()
@@ -246,7 +256,7 @@ class imdb(object):
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
     return image_per_batch, label_per_batch, delta_per_batch, \
-        aidx_per_batch, bbox_per_batch
+        aidx_per_batch, bbox_per_batch, boundary_adhesions_per_batch
 
   def evaluate_detections(self):
     raise NotImplementedError

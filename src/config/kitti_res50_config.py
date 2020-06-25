@@ -6,13 +6,14 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_res50_config():
+def kitti_res50_config(mask_parameterization, tune_only_last_layer, encoding_type):
   """Specify the parameters to tune below."""
+  assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
 
   mc.IMAGE_WIDTH           = 1242
   mc.IMAGE_HEIGHT          = 375
-  mc.BATCH_SIZE            = 20
+  mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
@@ -40,6 +41,10 @@ def kitti_res50_config():
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
 
+  mc.TRAIN_ONLY_LAST_LAYER = False
+  if tune_only_last_layer:
+    mc.TRAIN_ONLY_LAST_LAYER = True
+  mc.ENCODING_TYPE = encoding_type
   return mc
 
 def set_anchors(mc):

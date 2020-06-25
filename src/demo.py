@@ -167,16 +167,16 @@ def image_demo():
   with tf.Graph().as_default():
     # Load model
     if FLAGS.demo_net == 'squeezeDet':
-      mc = kitti_squeezeDet_config()
+      mc = cityscape_squeezeDet_config(4, False, False, False)
       mc.BATCH_SIZE = 1
       # model parameters will be restored from checkpoint
       mc.LOAD_PRETRAINED_MODEL = False
-      model = SqueezeDet(mc, FLAGS.gpu)
+      model = SqueezeDet(mc)
     elif FLAGS.demo_net == 'squeezeDet+':
-      mc = kitti_squeezeDetPlus_config()
+      mc = cityscape_squeezeDetPlus_config(4, False, False, False)
       mc.BATCH_SIZE = 1
       mc.LOAD_PRETRAINED_MODEL = False
-      model = SqueezeDetPlus(mc, FLAGS.gpu)
+      model = SqueezeDetPlus(mc)
 
     saver = tf.train.Saver(model.model_params)
 

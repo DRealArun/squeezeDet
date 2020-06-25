@@ -6,13 +6,14 @@ import numpy as np
 
 from .config import base_model_config
 
-def kitti_squeezeDetPlus_config():
+def kitti_squeezeDetPlus_config(mask_parameterization, tune_only_last_layer, encoding_type):
   """Specify the parameters to tune below."""
+  assert mask_parameterization == 4, "octagonal mask parameterization not supported for KITTI"
   mc                       = base_model_config('KITTI')
 
   mc.IMAGE_WIDTH           = 1242
   mc.IMAGE_HEIGHT          = 375
-  mc.BATCH_SIZE            = 20
+  mc.BATCH_SIZE            = 10
 
   mc.WEIGHT_DECAY          = 0.0001
   mc.LEARNING_RATE         = 0.01
@@ -40,6 +41,10 @@ def kitti_squeezeDetPlus_config():
   mc.ANCHORS               = len(mc.ANCHOR_BOX)
   mc.ANCHOR_PER_GRID       = 9
 
+  mc.TRAIN_ONLY_LAST_LAYER = False
+  if tune_only_last_layer:
+    mc.TRAIN_ONLY_LAST_LAYER = True
+  mc.ENCODING_TYPE = encoding_type
   return mc
 
 def set_anchors(mc):
@@ -54,7 +59,7 @@ def set_anchors(mc):
   center_x = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, W+1)*float(mc.IMAGE_WIDTH)/(W+1)]*H*B), 
+              np.array([np.arange(0, W)*16 +12+8]*H*B), 
               (B, H, W)
           ),
           (1, 2, 0)
@@ -64,7 +69,7 @@ def set_anchors(mc):
   center_y = np.reshape(
       np.transpose(
           np.reshape(
-              np.array([np.arange(1, H+1)*float(mc.IMAGE_HEIGHT)/(H+1)]*W*B),
+              np.array([np.arange(0, H)*16 +13+8]*W*B),
               (B, W, H)
           ),
           (2, 1, 0)

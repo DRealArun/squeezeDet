@@ -75,8 +75,13 @@ class ModelSkeleton:
     self.mc = mc
     # a scalar tensor in range (0, 1]. Usually set to 0.5 in training phase and
     # 1.0 in evaluation phase
-    self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
-
+    # self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
+    if self.mc.EIGHT_POINT_REGRESSION:
+      self.num_mask_params = 8
+    else:
+      self.num_mask_params = 4
+    print("Number of mask params:", self.num_mask_params)
+    self.keep_prob = tf.placeholder_with_default(mc.DROP_OUT_PROB, shape=(), name='keep_prob') # So that we can disable dropout for validation
     # image batch input
     self.ph_image_input = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
@@ -88,13 +93,16 @@ class ModelSkeleton:
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 1], name='box_mask')
     # Tensor used to represent bounding box deltas.
     self.ph_box_delta_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='box_delta_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='box_delta_input')
     # Tensor used to represent bounding box coordinates.
     self.ph_box_input = tf.placeholder(
-        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, 4], name='box_input')
+        tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='box_input')
     # Tensor used to represent labels
     self.ph_labels = tf.placeholder(
         tf.float32, [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES], name='labels')
+    # Tensor representing edge cases
+    self.ph_edge_adhesions = tf.placeholder(
+        tf.bool, [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params], name='edge_adhesions')
 
     # IOU between predicted anchors with ground-truth boxes
     self.ious = tf.Variable(
@@ -105,21 +113,22 @@ class ModelSkeleton:
     self.FIFOQueue = tf.FIFOQueue(
         capacity=mc.QUEUE_CAPACITY,
         dtypes=[tf.float32, tf.float32, tf.float32, 
-                tf.float32, tf.float32],
+                tf.float32, tf.float32, tf.bool],
         shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
                 [mc.ANCHORS, 1],
-                [mc.ANCHORS, 4],
-                [mc.ANCHORS, 4],
-                [mc.ANCHORS, mc.CLASSES]],
+                [mc.ANCHORS, self.num_mask_params],
+                [mc.ANCHORS, self.num_mask_params],
+                [mc.ANCHORS, mc.CLASSES],
+                [mc.ANCHORS, self.num_mask_params]],
     )
 
     self.enqueue_op = self.FIFOQueue.enqueue_many(
         [self.ph_image_input, self.ph_input_mask,
-         self.ph_box_delta_input, self.ph_box_input, self.ph_labels]
+         self.ph_box_delta_input, self.ph_box_input, self.ph_labels, self.ph_edge_adhesions]
     )
 
     self.image_input, self.input_mask, self.box_delta_input, \
-        self.box_input, self.labels = tf.train.batch(
+        self.box_input, self.labels, self.edge_adhesions = tf.train.batch(
             self.FIFOQueue.dequeue(), batch_size=mc.BATCH_SIZE,
             capacity=mc.QUEUE_CAPACITY) 
 
@@ -172,7 +181,7 @@ class ModelSkeleton:
       # bbox_delta
       self.pred_box_delta = tf.reshape(
           preds[:, :, :, num_confidence_scores:],
-          [mc.BATCH_SIZE, mc.ANCHORS, 4],
+          [mc.BATCH_SIZE, mc.ANCHORS, self.num_mask_params],
           name='bbox_delta'
       )
 
@@ -181,39 +190,116 @@ class ModelSkeleton:
 
     with tf.variable_scope('bbox') as scope:
       with tf.variable_scope('stretching'):
-        delta_x, delta_y, delta_w, delta_h = tf.unstack(
-            self.pred_box_delta, axis=2)
+        if self.mc.EIGHT_POINT_REGRESSION:
+          if mc.ENCODING_TYPE == 'normal':
+            delta_x, delta_y, delta_w, delta_h, \
+            delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
+                self.pred_box_delta, axis=2)
+          else:
+            delta_xmin, delta_ymin, delta_xmax, delta_ymax, \
+            delta_of1, delta_of2, delta_of3, delta_of4 = tf.unstack(
+                self.pred_box_delta, axis=2)
+        else:
+          if mc.ENCODING_TYPE == 'normal':
+            delta_x, delta_y, delta_w, delta_h = tf.unstack(
+                self.pred_box_delta, axis=2)
+          else:
+            delta_xmin, delta_ymin, delta_xmax, delta_ymax = tf.unstack(
+                self.pred_box_delta, axis=2)
 
         anchor_x = mc.ANCHOR_BOX[:, 0]
         anchor_y = mc.ANCHOR_BOX[:, 1]
         anchor_w = mc.ANCHOR_BOX[:, 2]
         anchor_h = mc.ANCHOR_BOX[:, 3]
 
-        box_center_x = tf.identity(
-            anchor_x + delta_x * anchor_w, name='bbox_cx')
-        box_center_y = tf.identity(
-            anchor_y + delta_y * anchor_h, name='bbox_cy')
-        box_width = tf.identity(
-            anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
-            name='bbox_width')
-        box_height = tf.identity(
-            anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
-            name='bbox_height')
-
-        self._activation_summary(delta_x, 'delta_x')
-        self._activation_summary(delta_y, 'delta_y')
-        self._activation_summary(delta_w, 'delta_w')
-        self._activation_summary(delta_h, 'delta_h')
+        if mc.ENCODING_TYPE == 'asymmetric_linear':
+          xmins_a, ymins_a, xmaxs_a, ymaxs_a = util.bbox_transform(np.transpose(mc.ANCHOR_BOX))
+          xmins = tf.identity(xmins_a + delta_xmin * anchor_w, name='bbox_xmin_uncropped') 
+          ymins = tf.identity(ymins_a + delta_ymin * anchor_h, name='bbox_ymin_uncropped') 
+          xmaxs = tf.identity(xmaxs_a + delta_xmax * anchor_w, name='bbox_xmax_uncropped') 
+          ymaxs = tf.identity(ymaxs_a + delta_ymax * anchor_h, name='bbox_ymax_uncropped')
+          box_center_x, box_center_y, box_width, box_height = util.bbox_transform_inv(
+                [xmins, ymins, xmaxs, ymaxs])
+          self._activation_summary(delta_xmin, 'delta_xmin')
+          self._activation_summary(delta_ymin, 'delta_ymin')
+          self._activation_summary(delta_xmax, 'delta_xmax')
+          self._activation_summary(delta_ymax, 'delta_ymax')
+        elif mc.ENCODING_TYPE == 'asymmetric_log':
+          EPSILON = 0.5
+          xmins = tf.identity(anchor_x - (anchor_w * (util.safe_exp(delta_xmin, mc.EXP_THRESH)-EPSILON)), name='bbox_xmin_uncropped') 
+          ymins = tf.identity(anchor_y - (anchor_h * (util.safe_exp(delta_ymin, mc.EXP_THRESH)-EPSILON)), name='bbox_ymin_uncropped') 
+          xmaxs = tf.identity(anchor_x + (anchor_w * (util.safe_exp(delta_xmax, mc.EXP_THRESH)-EPSILON)), name='bbox_xmax_uncropped') 
+          ymaxs = tf.identity(anchor_y + (anchor_h * (util.safe_exp(delta_ymax, mc.EXP_THRESH)-EPSILON)), name='bbox_ymax_uncropped')
+          box_center_x, box_center_y, box_width, box_height = util.bbox_transform_inv(
+                [xmins, ymins, xmaxs, ymaxs])
+          self._activation_summary(delta_xmin, 'delta_xmin')
+          self._activation_summary(delta_ymin, 'delta_ymin')
+          self._activation_summary(delta_xmax, 'delta_xmax')
+          self._activation_summary(delta_ymax, 'delta_ymax')
+        else:  
+          box_center_x = tf.identity(
+              anchor_x + delta_x * anchor_w, name='bbox_cx')
+          box_center_y = tf.identity(
+              anchor_y + delta_y * anchor_h, name='bbox_cy')
+          box_width = tf.identity(
+              anchor_w * util.safe_exp(delta_w, mc.EXP_THRESH),
+              name='bbox_width')
+          box_height = tf.identity(
+              anchor_h * util.safe_exp(delta_h, mc.EXP_THRESH),
+              name='bbox_height')
+          self._activation_summary(delta_x, 'delta_x')
+          self._activation_summary(delta_y, 'delta_y')
+          self._activation_summary(delta_w, 'delta_w')
+          self._activation_summary(delta_h, 'delta_h')
 
         self._activation_summary(box_center_x, 'bbox_cx')
         self._activation_summary(box_center_y, 'bbox_cy')
         self._activation_summary(box_width, 'bbox_width')
         self._activation_summary(box_height, 'bbox_height')
 
-      with tf.variable_scope('trimming'):
-        xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
-            [box_center_x, box_center_y, box_width, box_height])
+        if self.mc.EIGHT_POINT_REGRESSION:
+          EPSILON = 1e-8
+          anchor_diag = (mc.ANCHOR_BOX[:, 2]**2 + mc.ANCHOR_BOX[:, 3]**2)**(0.5)
+          box_of1= tf.identity(
+            (anchor_diag * util.safe_exp(delta_of1, mc.EXP_THRESH))-EPSILON,
+            name='bbox_of1')
+          box_of2= tf.identity(
+              (anchor_diag * util.safe_exp(delta_of2, mc.EXP_THRESH))-EPSILON,
+              name='bbox_of2')
+          box_of3= tf.identity(
+              (anchor_diag * util.safe_exp(delta_of3, mc.EXP_THRESH))-EPSILON,
+              name='bbox_of3')
+          box_of4= tf.identity(
+              (anchor_diag * util.safe_exp(delta_of4, mc.EXP_THRESH))-EPSILON,
+              name='bbox_of4')
+          self._activation_summary(delta_of1, 'delta_of1')
+          self._activation_summary(delta_of2, 'delta_of2')
+          self._activation_summary(delta_of3, 'delta_of3')
+          self._activation_summary(delta_of4, 'delta_of4')
+          self._activation_summary(box_of1, 'box_of1')
+          self._activation_summary(box_of2, 'box_of2')
+          self._activation_summary(box_of3, 'box_of3')
+          self._activation_summary(box_of4, 'box_of4')
 
+      with tf.variable_scope('trimming'):
+        if self.mc.EIGHT_POINT_REGRESSION:
+          xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4 = util.bbox_transform2(
+            [box_center_x, box_center_y, box_width, box_height, box_of1, box_of2, box_of3, box_of4])
+        else:
+          if mc.ENCODING_TYPE == 'normal':
+            xmins, ymins, xmaxs, ymaxs = util.bbox_transform(
+                [box_center_x, box_center_y, box_width, box_height])
+
+        if self.mc.EIGHT_POINT_REGRESSION:
+          self.det_boxes_uncropped = tf.transpose(
+                tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
+                (1, 2, 0), name='bbox_uncropped'
+          )
+        else:
+          self.det_boxes_uncropped = tf.transpose(
+                tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+                (1, 2, 0), name='bbox_uncropped'
+          )
         # The max x position is mc.IMAGE_WIDTH - 1 since we use zero-based
         # pixels. Same for y.
         xmins = tf.minimum(
@@ -232,10 +318,16 @@ class ModelSkeleton:
             tf.minimum(mc.IMAGE_HEIGHT-1.0, ymaxs), 0.0, name='bbox_ymax')
         self._activation_summary(ymaxs, 'box_ymax')
 
-        self.det_boxes = tf.transpose(
-            tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
-            (1, 2, 0), name='bbox'
-        )
+        if self.mc.EIGHT_POINT_REGRESSION:
+          self.det_boxes = tf.transpose(
+              tf.stack(util.bbox_transform_inv2([xmins, ymins, xmaxs, ymaxs, box_of1, box_of2, box_of3, box_of4])),
+              (1, 2, 0), name='bbox'
+          )
+        else:
+          self.det_boxes = tf.transpose(
+              tf.stack(util.bbox_transform_inv([xmins, ymins, xmaxs, ymaxs])),
+              (1, 2, 0), name='bbox'
+          )
 
     with tf.variable_scope('IOU'):
       def _tensor_iou(box1, box2):
@@ -260,11 +352,15 @@ class ModelSkeleton:
         return intersection/(union+mc.EPSILON) \
             * tf.reshape(self.input_mask, [mc.BATCH_SIZE, mc.ANCHORS])
 
+      if self.mc.EIGHT_POINT_REGRESSION:
+        tensor_det_boxes = util.bbox_transform2(tf.unstack(self.det_boxes, axis=2))
+        tensor_input_boxes = util.bbox_transform2(tf.unstack(self.box_input, axis=2))
+      else:
+        tensor_det_boxes = util.bbox_transform(tf.unstack(self.det_boxes, axis=2))
+        tensor_input_boxes = util.bbox_transform(tf.unstack(self.box_input, axis=2))
+
       self.ious = self.ious.assign(
-          _tensor_iou(
-              util.bbox_transform(tf.unstack(self.det_boxes, axis=2)),
-              util.bbox_transform(tf.unstack(self.box_input, axis=2))
-          )
+          _tensor_iou(tensor_det_boxes, tensor_input_boxes)
       )
       self._activation_summary(self.ious, 'conf_score')
 
@@ -314,13 +410,24 @@ class ModelSkeleton:
       tf.summary.scalar('mean iou', tf.reduce_sum(self.ious)/self.num_objects)
 
     with tf.variable_scope('bounding_box_regression') as scope:
-      self.bbox_loss = tf.truediv(
-          tf.reduce_sum(
-              mc.LOSS_COEF_BBOX * tf.square(
-                  self.input_mask*(self.pred_box_delta-self.box_delta_input))),
-          self.num_objects,
-          name='bbox_loss'
-      )
+      if mc.ENCODING_TYPE != 'normal':
+        self.scaling =  tf.logical_not(self.edge_adhesions)
+        self.scaling = tf.cast(self.scaling, dtype=self.pred_box_delta.dtype)
+        self.bbox_loss = tf.truediv(
+            tf.reduce_sum(
+                mc.LOSS_COEF_BBOX * tf.square(
+                    self.input_mask*(self.scaling*(self.pred_box_delta-self.box_delta_input)))),
+            self.num_objects,
+            name='bbox_loss'
+        )
+      else:
+        self.bbox_loss = tf.truediv(
+            tf.reduce_sum(
+                mc.LOSS_COEF_BBOX * tf.square(
+                    self.input_mask*(self.pred_box_delta-self.box_delta_input))),
+            self.num_objects,
+            name='bbox_loss'
+        )
       tf.add_to_collection('losses', self.bbox_loss)
 
     # add above losses as well as weight decay losses to form the total loss
@@ -331,17 +438,18 @@ class ModelSkeleton:
     mc = self.mc
 
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
-    lr = tf.train.exponential_decay(mc.LEARNING_RATE,
+    # self.initial_learning_rate = tf.Variable(mc.LEARNING_RATE, name='initial_learning_rate', trainable=False) # So that we can change learning rate during warm-restart
+    self.lr = tf.train.exponential_decay(mc.LEARNING_RATE,
                                     self.global_step,
                                     mc.DECAY_STEPS,
                                     mc.LR_DECAY_FACTOR,
                                     staircase=True)
 
-    tf.summary.scalar('learning_rate', lr)
+    tf.summary.scalar('learning_rate', self.lr)
 
     _add_loss_summaries(self.loss)
 
-    opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=mc.MOMENTUM)
+    opt = tf.train.MomentumOptimizer(learning_rate=self.lr, momentum=mc.MOMENTUM)
     grads_vars = opt.compute_gradients(self.loss, tf.trainable_variables())
 
     with tf.variable_scope('clip_gradient') as scope:
@@ -448,19 +556,20 @@ class ModelSkeleton:
           conv, mean=mean, variance=var, offset=beta, scale=gamma,
           variance_epsilon=mc.BATCH_NORM_EPSILON, name='batch_norm')
 
-      self.model_size_counter.append(
-          (conv_param_name, (1+size*size*int(channels))*filters)
-      )
-      out_shape = conv.get_shape().as_list()
-      num_flops = \
-        (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
-      if relu:
-        num_flops += 2*filters*out_shape[1]*out_shape[2]
-      self.flop_counter.append((conv_param_name, num_flops))
+      if mc.IS_TRAINING:
+        self.model_size_counter.append(
+            (conv_param_name, (1+size*size*int(channels))*filters)
+        )
+        out_shape = conv.get_shape().as_list()
+        num_flops = \
+          (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
+        if relu:
+          num_flops += 2*filters*out_shape[1]*out_shape[2]
+        self.flop_counter.append((conv_param_name, num_flops))
 
-      self.activation_counter.append(
-          (conv_param_name, out_shape[1]*out_shape[2]*out_shape[3])
-      )
+        self.activation_counter.append(
+            (conv_param_name, out_shape[1]*out_shape[2]*out_shape[3])
+        )
 
       if relu:
         return tf.nn.relu(conv)
@@ -546,20 +655,20 @@ class ModelSkeleton:
       else:
         out = conv_bias
 
-      self.model_size_counter.append(
-          (layer_name, (1+size*size*int(channels))*filters)
-      )
-      out_shape = out.get_shape().as_list()
-      num_flops = \
-        (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
-      if relu:
-        num_flops += 2*filters*out_shape[1]*out_shape[2]
-      self.flop_counter.append((layer_name, num_flops))
+      if mc.IS_TRAINING:
+        self.model_size_counter.append(
+            (layer_name, (1+size*size*int(channels))*filters)
+        )
+        out_shape = out.get_shape().as_list()
+        num_flops = \
+          (1+2*int(channels)*size*size)*filters*out_shape[1]*out_shape[2]
+        if relu:
+          num_flops += 2*filters*out_shape[1]*out_shape[2]
+        self.flop_counter.append((layer_name, num_flops))
 
-      self.activation_counter.append(
-          (layer_name, out_shape[1]*out_shape[2]*out_shape[3])
-      )
-
+        self.activation_counter.append(
+            (layer_name, out_shape[1]*out_shape[2]*out_shape[3])
+        )
       return out
   
   def _pooling_layer(
@@ -575,14 +684,15 @@ class ModelSkeleton:
     Returns:
       A pooling layer operation.
     """
-
+    mc = self.mc
     with tf.variable_scope(layer_name) as scope:
       out =  tf.nn.max_pool(inputs, 
                             ksize=[1, size, size, 1], 
                             strides=[1, stride, stride, 1],
                             padding=padding)
-      activation_size = np.prod(out.get_shape().as_list()[1:])
-      self.activation_counter.append((layer_name, activation_size))
+      if mc.IS_TRAINING:
+        activation_size = np.prod(out.get_shape().as_list()[1:])
+        self.activation_counter.append((layer_name, activation_size))
       return out
 
   
